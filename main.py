@@ -30,7 +30,7 @@ def process():
     # print(content)
     soup = BeautifulSoup(content.text, 'html.parser')
     tags = soup.find_all(['h2', 'p'])  # Extract and return first occurrence of h2
-    # print(tags)  # Print row with HTML formatting
+    #  print(tags)  # Print row with HTML formatting
 
     # need to build an array of arrays here, e.g. [[date],mission_details,launch pad, link] link -> #march72023-spacexfalcon9intelsat40e
     missions_array = []
