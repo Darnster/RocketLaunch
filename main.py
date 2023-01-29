@@ -2,9 +2,12 @@
 from bs4 import BeautifulSoup
 import requests
 import sys
+from datetime import datetime
+import time
+import calendar
 
 """
-https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
+Credit to: https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
 
 What this code does...
 
@@ -17,7 +20,7 @@ TO DO:
 1. normalise dates to compare with sysdate (on current month only due to output from the web page being a bit rubbish)
 2. hash the response to see if it has changed first?
 3. html + css
-4. email output to me when something changes
+4. email output to me when something changes - possibly configurable
 5. schedule it somewhere (on my phone)
 """
 
@@ -30,8 +33,8 @@ def process():
     # print(tags)  # Print row with HTML formatting
 
     # need to build an array of arrays here, e.g. [[date],mission_details,launch pad, link] link -> #march72023-spacexfalcon9intelsat40e
-    main_array = []
-    ctrl_flag = False
+    missions_array = []
+    ctrl_flag = False #controls when the process stops appending to the mission array (this_mission)
     this_mission = []
     for tag in tags:
         if ctrl_flag == False:
@@ -47,8 +50,71 @@ def process():
         if ctrl_flag == True:
             if tag.get_text()[0:6] == "Launch":
                 this_mission.append(tag.get_text())
-                print(this_mission)
+                missions_array.append(this_mission)
                 ctrl_flag = False
+
+    generate_output(missions_array)
+
+def generate_output(missions_array):
+    """
+    Generates html, filtered by sys date (should mak the sysdate part configurable?)
+    :return:
+
+    reference:  https://docs.python.org/3/library/time.html
+
+
+	<tbody>
+		<tr>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+		<tr>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+		<tr>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+	</tbody>
+</table>
+    """
+    #print(missions_array)
+    table_head = """<table>
+	<thead>
+		<tr>
+			<th>Date</th>
+			<th>Mission</th>
+			<th>Launch Pad</th>
+			<th>More Information</th>
+		</tr>
+	</thead>
+	<tbody>"""
+
+    """
+    [[['2022', '12', '31'], 'SpaceX Falcon 9, Transporter 6', 'january32023-spacexfalcon9transporter6', 'Launch was from launch pad SLC-40 with a launch time of 9:56 a.m. EST.'],...
+    """
+    current_time = time.time() # output = 1674993381.0381138
+    for mission in missions_array:
+        print(mission)
+        #first assign any null days (no date defined in schedyule) to 1st of month for comparison only
+        if mission[0][2] == "null":
+            mission_day = 1
+        else:
+            mission_day = mission[0][2]
+        print(mission_day)
+        mission_date = datetime(int(mission[0][0]),int(mission[0][1]),int(mission_day),0,0)
+        mission_date = calendar.timegm(mission_date.timetuple())
+        if mission_date >= current_time:
+            print("%s\n\n" % mission )
+            sys.exit
+
 
 
 def process_h2(tag):
@@ -58,9 +124,9 @@ def process_h2(tag):
     tag.text = 'January 3, 2023 - SpaceX Falcon 9, Transporter 6' (an example)
                 or January, 2023 - SpaceX Falcon 9, Transporter 6' (an example)
     :param tag:
-    :return: array [[<date>], [mission]]
+    :return: array [[<date>], <mission>, <taganchor>, <Launch Pad>]
     """
-    month_dict = {
+    month_dict = {# used to pad leading zero
         "January" : "01",
         "February" : "02",
         "March" : "03",
@@ -83,20 +149,25 @@ def process_h2(tag):
         March 2023 - SpaceX Falcon 9, Polaris Dawn
         ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
         ['March 2023']
-        
-        reference:  https://docs.python.org/3/library/time.html
         """
+        # 'January 3, 2023 - SpaceX Falcon 9, Transporter 6'
+        # or March 2023 - SpaceX Falcon 9, Polaris Dawn
         details_string = details.split(" - ")  # normalise date for sysdate comparison
-        mission_string = details_string[1].strip()
         # returns ['January 3, 2023 ',' SpaceX Falcon 9, Transporter 6']
+        # or  ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
+        mission_string = details_string[1].strip()
+        # returns 'SpaceX Falcon 9, Transporter 6'
+        # or 'SpaceX Falcon 9, Polaris Dawn'
         date_string = details_string[0].split(',')
         # returns ['January 3',' 2023 ']
+        # or  ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
         try:
             year = date_string[1].strip()
             # returns '2023'
         except:
-            # January, 2023 - SpaceX Falcon 9, Transporter 6   *** no day included ***
+            # ['March 2023']
             year = date_string[0].split(' ')[1]
+            # returns
         try:
             month_day = date_string[0].split(' ')
             # returns ['January',' 3']
@@ -107,7 +178,9 @@ def process_h2(tag):
                 day = "0%s" % day
         except IndexError:
             day = 'null'
-        return [[day, month, year], mission_string]
+        # get tag id so we can use the anchor in the details link
+        anchor = tag.get('id')
+        return [[year, month, day], mission_string, anchor]
     else:
         pass
 
