@@ -160,7 +160,7 @@ def process_h2(tag):
         # or 'SpaceX Falcon 9, Polaris Dawn'
         date_string = details_string[0].split(',')
         # returns ['January 3',' 2023 ']
-        # or  ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
+        # or  ['March 2023', 'SpaceX Falcon 9, Polaris Dawn'] ...
         try:
             year = date_string[1].strip()
             # returns '2023'
