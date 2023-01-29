@@ -17,9 +17,9 @@ It then emails the results when the page has identified as being updated.
 TO DO:
 ------
 
-1. normalise dates to compare with sysdate (on current month only due to output from the web page being a bit rubbish)
+1. normalise dates to compare with sysdate DONE
 2. hash the response to see if it has changed first?
-3. html + css
+3. html + css DONE
 4. email output to me when something changes - possibly configurable
 5. schedule it somewhere (on my phone)
 """
@@ -53,7 +53,11 @@ def process():
                 missions_array.append(this_mission)
                 ctrl_flag = False
 
-    generate_output(missions_array)
+    output_string = generate_output(missions_array)
+    print(output_string)
+    fh = open("space_launch.html", "w")
+    fh.write(output_string)
+    fh.close()
 
 def generate_output(missions_array):
     """
@@ -61,59 +65,88 @@ def generate_output(missions_array):
     :return:
 
     reference:  https://docs.python.org/3/library/time.html
-
-
-	<tbody>
-		<tr>
-			<td></td>
-			<td></td>
-			<td></td>
-			<td></td>
-		</tr>
-		<tr>
-			<td></td>
-			<td></td>
-			<td></td>
-			<td></td>
-		</tr>
-		<tr>
-			<td></td>
-			<td></td>
-			<td></td>
-			<td></td>
-		</tr>
-	</tbody>
-</table>
     """
     #print(missions_array)
-    table_head = """<table>
-	<thead>
-		<tr>
+    html_head = """<!DOCTYPE html><html><head>
+    <style type = text/css>
+    .styled-table {
+    border-collapse: collapse;
+    margin: 25px 0;
+    font-size: 0.9em;
+    font-family: sans-serif;
+    min-width: 400px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+    }
+    </style>
+    <title>Space Launch Summary</title></head>
+                    <body>
+                    <h1>Space Launch Summary</h1>"""
+
+    html_footer = """</body>
+                    </html>"""
+
+    table_head = """
+    <table class = "styled-table"><thead><tr>
 			<th>Date</th>
 			<th>Mission</th>
 			<th>Launch Pad</th>
 			<th>More Information</th>
 		</tr>
 	</thead>
-	<tbody>"""
+	<tbody>\n"""
+
+    table_footer = """</tbody>
+        </table>"""
 
     """
     [[['2022', '12', '31'], 'SpaceX Falcon 9, Transporter 6', 'january32023-spacexfalcon9transporter6', 'Launch was from launch pad SLC-40 with a launch time of 9:56 a.m. EST.'],...
     """
+    table_detail_string = ""
     current_time = time.time() # output = 1674993381.0381138
     for mission in missions_array:
-        print(mission)
+        # print(mission)
         #first assign any null days (no date defined in schedyule) to 1st of month for comparison only
         if mission[0][2] == "null":
             mission_day = 1
         else:
             mission_day = mission[0][2]
-        print(mission_day)
+        # print(mission_day)
         mission_date = datetime(int(mission[0][0]),int(mission[0][1]),int(mission_day),0,0)
         mission_date = calendar.timegm(mission_date.timetuple())
         if mission_date >= current_time:
-            print("%s\n\n" % mission )
-            sys.exit
+            #print("mission_date = %s, current_time = %s" % (mission_date, current_time))
+            mission_row_string = create_mission_row(mission)
+            table_detail_string += mission_row_string
+    return html_head + table_head + table_detail_string + table_footer + html_footer
+
+
+
+
+def create_mission_row(mission):
+    """
+    Generate table row from:
+    [['2023', '01', '31'],
+            'January 31, 2023',
+            'SpaceX Falcon 9, Starlink 5–3',
+            'january312023-spacexfalcon9starlink5-3',
+            'Launch is from launch pad LC-39A with a launch time of 3:27 a.m. EST.']
+    :param mission:
+    :return:
+    """
+    base_site_url = "https://floridareview.co.uk/things-to-do/current-launch-schedule"
+    row_string = "<tr>"
+    # human date
+    row_string += "<td>%s</td>" % mission[1]
+    # mission details
+    row_string += "<td>%s</td>" % mission[2]
+    # launch details
+    row_string += "<td>%s</td>" % mission[4]
+    # link
+    row_string += "<td><a href = %s#%s>Details</a></td>" % (base_site_url, mission[3])
+    row_string += "</tr>\n"
+    return row_string
+
+
 
 
 
@@ -122,7 +155,7 @@ def process_h2(tag):
     Get date in a form where it can be compared with sysdate
     also return mission detail in an array
     tag.text = 'January 3, 2023 - SpaceX Falcon 9, Transporter 6' (an example)
-                or January, 2023 - SpaceX Falcon 9, Transporter 6' (an example)
+                or March 2023 - SpaceX Falcon 9, Polaris Dawn' (an example)
     :param tag:
     :return: array [[<date>], <mission>, <taganchor>, <Launch Pad>]
     """
@@ -144,43 +177,56 @@ def process_h2(tag):
     details = tag.get_text()
     # Need to make sure we are dealing with a date
     if details[0:3] in ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']:
+        #print(details)
 
         """
+        January 3, 2023 - SpaceX Falcon 9, Transporter 6
         March 2023 - SpaceX Falcon 9, Polaris Dawn
         ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
         ['March 2023']
         """
         # 'January 3, 2023 - SpaceX Falcon 9, Transporter 6'
         # or March 2023 - SpaceX Falcon 9, Polaris Dawn
-        details_string = details.split(" - ")  # normalise date for sysdate comparison
-        # returns ['January 3, 2023 ',' SpaceX Falcon 9, Transporter 6']
-        # or  ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
-        mission_string = details_string[1].strip()
-        # returns 'SpaceX Falcon 9, Transporter 6'
-        # or 'SpaceX Falcon 9, Polaris Dawn'
-        date_string = details_string[0].split(',')
-        # returns ['January 3',' 2023 ']
-        # or  ['March 2023', 'SpaceX Falcon 9, Polaris Dawn'] ...
-        try:
+        mission_precision = details.split(",")
+        if len(mission_precision) == 3: # pattern is  January 3, 2023 - SpaceX Falcon 9, Transporter 6    ... has 2 commas
+            #print("mission precision = 3")
+            details_string = details.split(" - ")  # normalise date for sysdate comparison
+            # returns ['January 3, 2023 ',' SpaceX Falcon 9, Transporter 6']
+            mission_string = details_string[1].strip()
+            # returns 'SpaceX Falcon 9, Transporter 6'
+            human_date = details_string[0].strip()
+            # returns January 3, 2023
+            date_string = details_string[0].split(',')
+            # returns ['January 3',' 2023 ']
             year = date_string[1].strip()
             # returns '2023'
-        except:
-            # ['March 2023']
-            year = date_string[0].split(' ')[1]
-            # returns
-        try:
             month_day = date_string[0].split(' ')
             # returns ['January',' 3']
             month = month_dict.get(month_day[0])
-            day = month_day[1]
-            if len(day) == 1:
-                #pad with leading zero
-                day = "0%s" % day
-        except IndexError:
-            day = 'null'
+            try:
+                day = month_day[1]
+            except:
+                day = "null"
+
+
+        else: # March 2023 - SpaceX Falcon 9, Polaris Dawn   ... has only one comma
+            #print("mission precision = 2")
+            details_string = details.split(" - ")  # normalise date for sysdate comparison
+            # returns ['March 2023 ',' SpaceX Falcon 9, Polaris Dawn']
+            human_date = details_string[0].strip()
+            # returns 'March 2023'
+            mission_string = details_string[1].strip()
+            # returns 'SpaceX Falcon 9, Polaris Dawn''
+            date_string = details_string[0].split(' ')
+            # returns ['March','2023']
+            year = date_string[1].strip()
+            # returns '2023'
+            month = month_dict.get(date_string[0])
+            day = "null"
+
         # get tag id so we can use the anchor in the details link
         anchor = tag.get('id')
-        return [[year, month, day], mission_string, anchor]
+        return [[year, month, day], human_date, mission_string, anchor]
     else:
         pass
 
