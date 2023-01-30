@@ -6,22 +6,32 @@ from datetime import datetime
 import time
 import calendar
 
+__author__ = "danny.ruttle@gmail.com"
+--version__ = "0.2"
+__date__ = "30-01-2023"
+
 """
 Credit to: https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
 
 What this code does...
 
-It queries the Florida launch timetable page and returns the results in an easy to read summary as a table.
-It then emails the results when the page has identified as being updated.
+It queries the Florida launch timetable page (https://floridareview.co.uk/things-to-do/current-launch-schedule) and returns 
+the results in an easy to read summary as a table in an HTML page.
 
-TO DO:
-------
+It then runs periodically using crond and uses md5 to determine whether the page has been updated and emails the output.
+... may publish to a location on my phone instead???
 
+Features Complete
+-----------------
 1. normalise dates to compare with sysdate DONE
-2. hash the response to see if it has changed first?
-3. html + css DONE
-4. email output to me when something changes - possibly configurable
-5. schedule it somewhere (on my phone)
+2. html + css for output
+
+
+TO DO
+-----
+1. hash the response to see if it has changed before generating the output 
+2. email output to me when something changes - possibly configurable
+3. schedule it somewhere (on my phone)
 """
 
 
