@@ -5,9 +5,10 @@ import sys
 from datetime import datetime
 import time
 import calendar
+import hashlib
 
 __author__ = "danny.ruttle@gmail.com"
---version__ = "0.2"
+__version__ = "0.3"
 __date__ = "30-01-2023"
 
 """
@@ -25,49 +26,88 @@ Features Complete
 -----------------
 1. normalise dates to compare with sysdate DONE
 2. html + css for output
+3. hash the response to see if it has changed before generating the output (hash stored in (signature.txt))
+4. logging of the result of each run of the script 
 
 
 TO DO
 -----
-1. hash the response to see if it has changed before generating the output 
-2. email output to me when something changes - possibly configurable
-3. schedule it somewhere (on my phone)
+1. email output to me when something changes - possibly configurable
+2. schedule it somewhere (on my phone)
 """
 
 
 def process():
+
     content = requests.get("https://floridareview.co.uk/things-to-do/current-launch-schedule")
     # print(content)
     soup = BeautifulSoup(content.text, 'html.parser')
     tags = soup.find_all(['h2', 'p'])  # Extract and return first occurrence of h2
     #  print(tags)  # Print row with HTML formatting
+    if check_page_update(tags):  # see if digest of tags array is different
+        # need to build an array of arrays here, e.g. [[date],mission_details,launch pad, link] link -> #march72023-spacexfalcon9intelsat40e
+        missions_array = []
+        ctrl_flag = False #controls when the process stops appending to the mission array (this_mission)
+        this_mission = []
+        for tag in tags:
+            if ctrl_flag == False:
+                this_mission = []
+            if str(tag)[0:6] == "<h2 id":  # this is a heading we are interested in
+                mission = process_h2(tag)
+                if mission:
+                    this_mission = mission
+                    #print(this_mission)
+                    ctrl_flag = True
 
-    # need to build an array of arrays here, e.g. [[date],mission_details,launch pad, link] link -> #march72023-spacexfalcon9intelsat40e
-    missions_array = []
-    ctrl_flag = False #controls when the process stops appending to the mission array (this_mission)
-    this_mission = []
-    for tag in tags:
-        if ctrl_flag == False:
-            this_mission = []
-        if str(tag)[0:6] == "<h2 id":  # this is a heading we are interested in
-            mission = process_h2(tag)
-            if mission:
-                this_mission = mission
-                #print(this_mission)
-                ctrl_flag = True
+
+            if ctrl_flag == True:
+                if tag.get_text()[0:6] == "Launch":
+                    this_mission.append(tag.get_text())
+                    missions_array.append(this_mission)
+                    ctrl_flag = False
+
+        output_string = generate_output(missions_array)
+        print(output_string)
+        fh = open("space_launch.html", "w")
+        fh.write(output_string)
+        fh.close()
 
 
-        if ctrl_flag == True:
-            if tag.get_text()[0:6] == "Launch":
-                this_mission.append(tag.get_text())
-                missions_array.append(this_mission)
-                ctrl_flag = False
 
-    output_string = generate_output(missions_array)
-    print(output_string)
-    fh = open("space_launch.html", "w")
-    fh.write(output_string)
-    fh.close()
+def check_page_update(tags):
+    """
+    Generate a signature for incoming data and compare with the last version
+    :param tags: multidemensional array of data returned from the web page
+    :return: Boolean
+    """
+    sig = hashlib.shake_128()
+    sig.update(str.encode(str(tags)))
+    sig = sig.hexdigest(32)
+    # print(sig)
+    # now compare
+    last_signature = open('signature.txt', "r")
+    old_sig = last_signature.readline()
+    last_signature.close()
+    # print(old_sig)
+    if sig == old_sig:
+        # do nothing
+        log_run(sig, "did not update")
+        return False
+    else:
+        new_sig = open('signature.txt', "w")
+        new_sig.write(sig)
+        new_sig.close()
+        log_run(sig, "updated")
+        return True
+
+
+def log_run(sig, action):
+    logfile = open("run_log.txt", "a")
+    date_string = f'{datetime.now():%Y-%m-%d %H:%M:%S%z}'
+    logfile.write("Script ran at %s and %s the output, digest was %s\n" % (date_string, action, sig))
+
+
+
 
 def generate_output(missions_array):
     """
@@ -77,7 +117,9 @@ def generate_output(missions_array):
     reference:  https://docs.python.org/3/library/time.html
     """
     #print(missions_array)
+    date_string = f'{datetime.now():%Y-%m-%d %H:%M:%S%z}'
     html_head = """<!DOCTYPE html><html><head>
+    <meta charset="utf-8" />
     <style type = text/css>
     .styled-table {
     border-collapse: collapse;
@@ -87,17 +129,27 @@ def generate_output(missions_array):
     min-width: 400px;
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
     }
+    h1 {
+    font-size: 3em;
+    font-family: sans-serif;
+    }
+    body {
+    font-size: 0.9em;
+    font-family: sans-serif;
+    }
     </style>
     <title>Space Launch Summary</title></head>
                     <body>
-                    <h1>Space Launch Summary</h1>"""
+                    <h1>Space Launch Summary</h1>
+                    <p>Generated from 
+                    <a href= "https://floridareview.co.uk/things-to-do/current-launch-schedule">https://floridareview.co.uk/things-to-do/current-launch-schedule</a> on %s""" % date_string
 
     html_footer = """</body>
                     </html>"""
 
     table_head = """
     <table class = "styled-table"><thead><tr>
-			<th>Date</th>
+			<th nowrap>Date</th>
 			<th>Mission</th>
 			<th>Launch Pad</th>
 			<th>More Information</th>
