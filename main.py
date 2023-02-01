@@ -7,10 +7,12 @@ import time
 import calendar
 import hashlib
 import email, smtplib, ssl
+import CryptProcess # for gmail password encryption
+import cfg_parser
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "0.4"
-__date__ = "31-01-2023"
+__version__ = "0.5"
+__date__ = "01-02-2023"
 
 """
 Credit to: https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -30,16 +32,25 @@ Features Complete
 3. hash the response to see if it has changed before generating the output (hash stored in (signature.txt))
 4. logging of the result of each run of the script
 5. email output to me when something changes - possibly configurable
+6. encrypt app password for gmail
 
 
 TO DO
 -----
-1. encrypt app password for gmail
-2. schedule it somewhere (on my phone)
+1. Schedule it somewhere (on my phone)
 """
 
 
 def process():
+    """
+
+    :param key: used to decrypt the password passed in to the process
+    :return:
+    """
+
+    config_dict = read_config("config.txt")
+    pwd = config_dict.get("pwd")
+    key = config_dict.get("key")
 
     content = requests.get("https://floridareview.co.uk/things-to-do/current-launch-schedule")
     # print(content)
@@ -73,20 +84,34 @@ def process():
         fh = open("space_launch.html", "w")
         fh.write(output_string)
         fh.close()
-        notify_update()
+        notify_update(key, pwd, output_string)
 
 
-def notify_update():
+def read_config(config):
+    """
+    Read from config file into a dictionary
+    :param config: text file with
+    :return: dictionary containing config properties
+    """
+    cp = cfg_parser.config_parser()
+    return cp.read(config)
+
+
+
+def notify_update(key,pwd, output):
     from email import encoders
     from email.mime.base import MIMEBase
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
+    gpwd = CryptProcess.decrypt(bytes(pwd, 'utf-8'), key).decode()
+
+
     subject = "rocket Schedule Update"
     body = "An update has been made to the page - exciting!"
     sender_email = "darnster.test@gmail.com"
     receiver_email = "danny.ruttle@gmail.com"
-    password = 'dlefhhpiusazguwn' # this is a google app password - need to use pycrypto for this - see manual amend!
+    password = gpwd # this is a google app password - uses pycrypto for this - see manual amend!
 
     # Create a multipart message and set headers
     message = MIMEMultipart()
