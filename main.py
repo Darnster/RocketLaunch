@@ -15,7 +15,7 @@ __version__ = "0.6"
 __date__ = "01-02-2023"
 
 """
-Credit to: https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
+Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
 
 What this code does...
 
