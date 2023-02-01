@@ -11,7 +11,7 @@ import CryptProcess # for gmail password encryption
 import cfg_parser
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "0.5"
+__version__ = "0.6"
 __date__ = "01-02-2023"
 
 """
@@ -33,6 +33,7 @@ Features Complete
 4. logging of the result of each run of the script
 5. email output to me when something changes - possibly configurable
 6. encrypt app password for gmail
+7. HTML now published to body of email
 
 
 TO DO
@@ -80,7 +81,7 @@ def process():
                     ctrl_flag = False
 
         output_string = generate_output(missions_array)
-        print(output_string)
+
         fh = open("space_launch.html", "w")
         fh.write(output_string)
         fh.close()
@@ -108,48 +109,35 @@ def notify_update(key,pwd, output):
 
 
     subject = "rocket Schedule Update"
-    body = "An update has been made to the page - exciting!"
+    text = "An update has been made to the page - exciting!"
     sender_email = "darnster.test@gmail.com"
     receiver_email = "danny.ruttle@gmail.com"
     password = gpwd # this is a google app password - uses pycrypto for this - see manual amend!
 
     # Create a multipart message and set headers
-    message = MIMEMultipart()
+    message = MIMEMultipart("alternative")
     message["From"] = sender_email
     message["To"] = receiver_email
     message["Subject"] = subject
     message["Bcc"] = receiver_email  # Recommended for mass emails
 
-    # Add body to email
-    message.attach(MIMEText(body, "plain"))
 
-    filename = "space_launch.html"  # In same directory as script
+    html = output[15:]
 
-    # Open PDF file in binary mode
-    with open(filename, "rb") as attachment:
-        # Add file as application/octet-stream
-        # Email client can usually download this automatically as attachment
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(attachment.read())
+    # Turn these into plain/html MIMEText objects
+    part1 = MIMEText(text, "plain")
+    part2 = MIMEText(html, "html")
 
-    # Encode file in ASCII characters to send by email
-    encoders.encode_base64(part)
-
-    # Add header as key/value pair to attachment part
-    part.add_header(
-        "Content-Disposition",
-        f"attachment; filename= {filename}",
-    )
-
-    # Add attachment to message and convert message to string
-    message.attach(part)
-    text = message.as_string()
+    # Add HTML/plain-text parts to MIMEMultipart message
+    # The email client will try to render the last part first
+    message.attach(part1)
+    message.attach(part2)
 
     # Log in to server using secure context and send email
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
         server.login(sender_email, password)
-        server.sendmail(sender_email, receiver_email, text)
+        server.sendmail(sender_email, receiver_email, message.as_string())
 
 
 
