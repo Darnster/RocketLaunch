@@ -1,7 +1,7 @@
 
 from bs4 import BeautifulSoup
 import requests
-import sys
+import sys, os
 from datetime import datetime
 import time
 import calendar
@@ -11,7 +11,7 @@ import CryptProcess # for gmail password encryption
 import cfg_parser
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "0.7"
+__version__ = "0.8"
 __date__ = "03-02-2023"
 
 """
@@ -34,9 +34,12 @@ Features Complete
 5. email output to me when something changes - possibly configurable
 6. encrypt app password for gmail
 7. HTML now published to body of email
+8. Working directory provided for config, signature and log files
+
 
 Bugs fixed:
-#001 Source page added a descriptive date with a comma 
+#001 Source page added a descriptive date with a comma
+#002 lack of path to working directory causing cron to fail 
 
 
 TO DO
@@ -44,6 +47,7 @@ TO DO
 1. Schedule it somewhere (on my phone)
 """
 
+working_directory = os.getcwd()
 
 def process():
     """
@@ -52,6 +56,7 @@ def process():
     """
 
     config_dict = read_config("config.txt")
+    # encrypted credentials for sending output via gmail
     pwd = config_dict.get("pwd")
     key = config_dict.get("key")
 
@@ -84,7 +89,7 @@ def process():
 
         output_string = generate_output(missions_array)
 
-        fh = open("space_launch.html", "w")
+        fh = open("%s\\space_launch.html" % working_directory, "w")
         fh.write(output_string)
         fh.close()
         notify_update(key, pwd, output_string)
@@ -154,7 +159,8 @@ def check_page_update(tags):
     sig = sig.hexdigest(32)
     # print(sig)
     # now compare
-    last_signature = open('signature.txt', "r")
+    sig_path = '%s\\signature.txt' % working_directory
+    last_signature = open(sig_path, "r")
     old_sig = last_signature.readline()
     last_signature.close()
     # print(old_sig)
@@ -163,7 +169,7 @@ def check_page_update(tags):
         log_run(sig, "did not update")
         return False
     else:
-        new_sig = open('signature.txt', "w")
+        new_sig = open(sig_path, "w")
         new_sig.write(sig)
         new_sig.close()
         log_run(sig, "updated")
@@ -171,7 +177,7 @@ def check_page_update(tags):
 
 
 def log_run(sig, action):
-    logfile = open("run_log.txt", "a")
+    logfile = open("%s\\run_log.txt" % working_directory, "a")
     date_string = f'{datetime.now():%Y-%m-%d %H:%M:%S%z}'
     logfile.write("Script ran at %s and %s the output, digest was %s\n" % (date_string, action, sig))
 
@@ -325,11 +331,10 @@ def process_h2(tag):
         mission_split = details.split("-")
         mission_date = mission_split[0].replace(',', '')
         mission_string = mission_split[1].strip()
-        print(mission_date)
+
         human_date = mission_date.strip()
-        print(human_date)
+
         date_array = human_date.split(' ')
-        print(date_array)
         # do a length check here...
         if len(date_array) == 3:  # 'January 3 2023'
             # ['January','3',' 2023 ']
