@@ -11,8 +11,8 @@ import CryptProcess # for gmail password encryption
 import cfg_parser
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "0.6"
-__date__ = "01-02-2023"
+__version__ = "0.7"
+__date__ = "03-02-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -35,6 +35,9 @@ Features Complete
 6. encrypt app password for gmail
 7. HTML now published to body of email
 
+Bugs fixed:
+#001 Source page added a descriptive date with a comma 
+
 
 TO DO
 -----
@@ -44,8 +47,7 @@ TO DO
 
 def process():
     """
-
-    :param key: used to decrypt the password passed in to the process
+    :param :
     :return:
     """
 
@@ -313,44 +315,36 @@ def process_h2(tag):
         March 2023 - SpaceX Falcon 9, Polaris Dawn
         ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
         ['March 2023']
-        """
+        
+        bug #001 fix to this section.  Needed to remove processing of commas from date portion of the h2 tag as these are not uniformally structured 
+        
         # 'January 3, 2023 - SpaceX Falcon 9, Transporter 6'
-        # or March 2023 - SpaceX Falcon 9, Polaris Dawn
-        mission_precision = details.split(",")
-        if len(mission_precision) == 3: # pattern is  January 3, 2023 - SpaceX Falcon 9, Transporter 6    ... has 2 commas
-            #print("mission precision = 3")
-            details_string = details.split(" - ")  # normalise date for sysdate comparison
-            # returns ['January 3, 2023 ',' SpaceX Falcon 9, Transporter 6']
-            mission_string = details_string[1].strip()
-            # returns 'SpaceX Falcon 9, Transporter 6'
-            human_date = details_string[0].strip()
-            # returns January 3, 2023
-            date_string = details_string[0].split(',')
-            # returns ['January 3',' 2023 ']
-            year = date_string[1].strip()
+        # or 'March 2023 - SpaceX Falcon 9, Polaris Dawn'
+        # or 'February, 2023 - Relativity Space Terran 1, Good Luck, Have Fun'
+        """
+        mission_split = details.split("-")
+        mission_date = mission_split[0].replace(',', '')
+        mission_string = mission_split[1].strip()
+        print(mission_date)
+        human_date = mission_date.strip()
+        print(human_date)
+        date_array = human_date.split(' ')
+        print(date_array)
+        # do a length check here...
+        if len(date_array) == 3:  # 'January 3 2023'
+            # ['January','3',' 2023 ']
+            year = date_array[2]
             # returns '2023'
-            month_day = date_string[0].split(' ')
+            day = date_array[1]
             # returns ['January',' 3']
-            month = month_dict.get(month_day[0])
-            try:
-                day = month_day[1]
-            except:
-                day = "null"
+            month = month_dict.get(date_array[0])
 
 
-        else: # March 2023 - SpaceX Falcon 9, Polaris Dawn   ... has only one comma
-            #print("mission precision = 2")
-            details_string = details.split(" - ")  # normalise date for sysdate comparison
-            # returns ['March 2023 ',' SpaceX Falcon 9, Polaris Dawn']
-            human_date = details_string[0].strip()
-            # returns 'March 2023'
-            mission_string = details_string[1].strip()
-            # returns 'SpaceX Falcon 9, Polaris Dawn''
-            date_string = details_string[0].split(' ')
-            # returns ['March','2023']
-            year = date_string[1].strip()
+        else: # 'January 2023'
+            # ['January','2023']
+            year = date_array[1]
             # returns '2023'
-            month = month_dict.get(date_string[0])
+            month = month_dict.get(date_array[0])
             day = "null"
 
         # get tag id so we can use the anchor in the details link
