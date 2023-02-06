@@ -23,7 +23,7 @@ class config_parser(object):
         _config = config_file #"\\".join( (os.path.abspath(os.path.curdir), config_file) )
 
         try:
-            fh = open(_config,'r')
+            fh = open(_config, 'r')
         except:
             sys.stderr.write("unable to open config file %s.\n\n" % ( _config ) )
             sys.exit()

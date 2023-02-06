@@ -2,7 +2,7 @@
 from bs4 import BeautifulSoup
 import requests
 import sys, os
-from datetime import datetime
+from datetime import datetime, time
 import time
 import calendar
 import hashlib
@@ -11,7 +11,7 @@ import CryptProcess # for gmail password encryption
 import cfg_parser
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "0.9"
+__version__ = "1.0"
 __date__ = "06-02-2023"
 
 """
@@ -38,6 +38,9 @@ Features Complete
 9. Working directory path separators corrected (bug #003).
 10. run_log.txt output updated to reduce verbosity and only show last 4 chars of the digest,
 11. Schedule in cron on my phone using "* * * * * cd <working directory> && python main.py"
+12. Update gmail account to rocket.spotter@gmail.com.
+13. Constrain the current_time comparison in generate_output() to be rounded down to 0:00 on that date (whole day).
+14. Email addresses for recipients is configurable
 
 
 Bugs fixed:
@@ -48,9 +51,8 @@ Bugs fixed:
 
 TO DO
 -----
-1. Need to constrain the current_time comparison in generate_output() to be rounded down to 0:00 on that date (whole day).
-2. Update gmail account to rocket.spotter@gmail.com
-3. Make addition of email addresses configurable
+.
+
 """
 
 working_directory = os.getcwd()
@@ -65,6 +67,9 @@ def process():
     # encrypted credentials for sending output via gmail
     pwd = config_dict.get("pwd")
     key = config_dict.get("key")
+    recipients = config_dict.get("recipients")
+
+    print(config_dict)
 
     content = requests.get("https://floridareview.co.uk/things-to-do/current-launch-schedule")
     # print(content)
@@ -98,7 +103,7 @@ def process():
         fh = open("%s/space_launch.html" % working_directory, "w")
         fh.write(output_string)
         fh.close()
-        notify_update(key, pwd, output_string)
+        notify_update(key, pwd, output_string, recipients)
 
 
 def read_config(config):
@@ -112,7 +117,7 @@ def read_config(config):
 
 
 
-def notify_update(key,pwd, output):
+def notify_update(key,pwd, output, recipients):
     from email import encoders
     from email.mime.base import MIMEBase
     from email.mime.multipart import MIMEMultipart
@@ -120,22 +125,22 @@ def notify_update(key,pwd, output):
 
     gpwd = CryptProcess.decrypt(bytes(pwd, 'utf-8'), key).decode()
 
-
-    subject = "rocket Schedule Update"
+    print(recipients)
+    subject = "Rocket Schedule Update"
     text = "An update has been made to the page - exciting!"
-    sender_email = "darnster.test@gmail.com"
-    receiver_email = "danny.ruttle@gmail.com"
+    sender_email = "rockets.spotter@gmail.com"
+    receiver_email = str.split(recipients, ",")
     password = gpwd # this is a google app password - uses pycrypto for this - see manual amend!
 
     # Create a multipart message and set headers
     message = MIMEMultipart("alternative")
     message["From"] = sender_email
-    message["To"] = receiver_email
+    message["To"] = recipients
     message["Subject"] = subject
-    message["Bcc"] = receiver_email  # Recommended for mass emails
+    message["Bcc"] = "rockets.spotter@gmail.com"  # Recommended for mass emails
 
 
-    html = output[15:]
+    html = output[15:] # removes doctype declaration
 
     # Turn these into plain/html MIMEText objects
     part1 = MIMEText(text, "plain")
@@ -245,7 +250,8 @@ def generate_output(missions_array):
     [[['2022', '12', '31'], 'SpaceX Falcon 9, Transporter 6', 'january32023-spacexfalcon9transporter6', 'Launch was from launch pad SLC-40 with a launch time of 9:56 a.m. EST.'],...
     """
     table_detail_string = ""
-    current_time = time.time() # output = 1674993381.0381138
+    current_day = (int(time.time() // 86400)) * 86400   # output = 6614352000
+
     for mission in missions_array:
         # print(mission)
         #first assign any null days (no date defined in schedyule) to 1st of month for comparison only
@@ -256,7 +262,7 @@ def generate_output(missions_array):
         # print(mission_day)
         mission_date = datetime(int(mission[0][0]),int(mission[0][1]),int(mission_day),0,0)
         mission_date = calendar.timegm(mission_date.timetuple())
-        if mission_date >= current_time:
+        if mission_date >= current_day:
             #print("mission_date = %s, current_time = %s" % (mission_date, current_time))
             mission_row_string = create_mission_row(mission)
             table_detail_string += mission_row_string
