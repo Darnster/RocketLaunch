@@ -17,7 +17,7 @@ __date__ = "06-02-2023"
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
 
-What this code does...
+What this code does....
 
 It queries the Florida launch timetable page (https://floridareview.co.uk/things-to-do/current-launch-schedule) and returns 
 the results in an easy to read summary as a table in an HTML page.
