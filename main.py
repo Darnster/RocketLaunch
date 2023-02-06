@@ -11,8 +11,8 @@ import CryptProcess # for gmail password encryption
 import cfg_parser
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "0.8"
-__date__ = "03-02-2023"
+__version__ = "0.9"
+__date__ = "06-02-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -35,16 +35,22 @@ Features Complete
 6. encrypt app password for gmail
 7. HTML now published to body of email
 8. Working directory provided for config, signature and log files
+9. Working directory path separators corrected (bug #003).
+10. run_log.txt output updated to reduce verbosity and only show last 4 chars of the digest,
+11. Schedule in cron on my phone using "* * * * * cd <working directory> && python main.py"
 
 
 Bugs fixed:
 #001 Source page added a descriptive date with a comma
-#002 lack of path to working directory causing cron to fail 
+#002 lack of path to working directory causing cron to fail
+#003 slashes to working directory where \\ need to be /
 
 
 TO DO
 -----
-1. Schedule it somewhere (on my phone)
+1. Need to constrain the current_time comparison in generate_output() to be rounded down to 0:00 on that date (whole day).
+2. Update gmail account to rocket.spotter@gmail.com
+3. Make addition of email addresses configurable
 """
 
 working_directory = os.getcwd()
@@ -89,7 +95,7 @@ def process():
 
         output_string = generate_output(missions_array)
 
-        fh = open("%s\\space_launch.html" % working_directory, "w")
+        fh = open("%s/space_launch.html" % working_directory, "w")
         fh.write(output_string)
         fh.close()
         notify_update(key, pwd, output_string)
@@ -159,7 +165,7 @@ def check_page_update(tags):
     sig = sig.hexdigest(32)
     # print(sig)
     # now compare
-    sig_path = '%s\\signature.txt' % working_directory
+    sig_path = '%s/signature.txt' % working_directory
     last_signature = open(sig_path, "r")
     old_sig = last_signature.readline()
     last_signature.close()
@@ -177,9 +183,9 @@ def check_page_update(tags):
 
 
 def log_run(sig, action):
-    logfile = open("%s\\run_log.txt" % working_directory, "a")
+    logfile = open("%s/run_log.txt" % working_directory, "a")
     date_string = f'{datetime.now():%Y-%m-%d %H:%M:%S%z}'
-    logfile.write("Script ran at %s and %s the output, digest was %s\n" % (date_string, action, sig))
+    logfile.write("Script ran at %s and %s the output, digest was %s\n" % (date_string, action, sig[-4:]))
 
 
 
