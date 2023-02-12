@@ -11,8 +11,8 @@ import CryptProcess # for gmail password encryption
 import cfg_parser
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "1.0"
-__date__ = "06-02-2023"
+__version__ = "1.1"
+__date__ = "12-02-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -41,6 +41,7 @@ Features Complete
 12. Update gmail account to rocket.spotter@gmail.com.
 13. Constrain the current_time comparison in generate_output() to be rounded down to 0:00 on that date (whole day).
 14. Email addresses for recipients is configurable
+15. The script now emails the log after each run to rockets.spotter@gmail.com (v 1.1)
 
 
 Bugs fixed:
@@ -55,6 +56,7 @@ TO DO
 
 """
 
+# global constants
 working_directory = os.getcwd()
 
 def process():
@@ -69,7 +71,6 @@ def process():
     key = config_dict.get("key")
     recipients = config_dict.get("recipients")
 
-    print(config_dict)
 
     content = requests.get("https://floridareview.co.uk/things-to-do/current-launch-schedule")
     # print(content)
@@ -125,7 +126,7 @@ def notify_update(key,pwd, output, recipients):
 
     gpwd = CryptProcess.decrypt(bytes(pwd, 'utf-8'), key).decode()
 
-    print(recipients)
+    # print(recipients)
     subject = "Rocket Schedule Update"
     text = "An update has been made to the page - exciting!"
     sender_email = "rockets.spotter@gmail.com"
@@ -190,8 +191,57 @@ def check_page_update(tags):
 def log_run(sig, action):
     logfile = open("%s/run_log.txt" % working_directory, "a")
     date_string = f'{datetime.now():%Y-%m-%d %H:%M:%S%z}'
-    logfile.write("Script ran at %s and %s the output, digest was %s\n" % (date_string, action, sig[-4:]))
+    output = "Script ran at %s and %s the output, digest was %s\n" % (date_string, action, sig[-4:])
+    logfile.write(output)
 
+    # now email the log to rockets.spotter@gmail.com
+    notify_log(output)
+
+
+def notify_log(output):
+    from email import encoders
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    config_dict = read_config("config.txt")
+    # encrypted credentials for sending output via gmail
+    pwd = config_dict.get("pwd")
+    key = config_dict.get("key")
+
+    gpwd = CryptProcess.decrypt(bytes(pwd, 'utf-8'), key).decode()
+
+    # ***********************************  need to look at email mime method, etc... ****************
+    subject = "Rockets Run Log"
+    text = output
+    sender_email = "rockets.spotter@gmail.com"
+    receiver_email = "rockets.spotter@gmail.com"
+    password = gpwd # this is a google app password - uses pycrypto for this - see manual amend!
+
+    # Create a multipart message and set headers
+    message = MIMEMultipart("alternative")
+    message["From"] = sender_email
+    message["To"] = "rockets.spotter@gmail.com"
+    message["Subject"] = subject
+    message["Bcc"] = "rockets.spotter@gmail.com"  # Recommended for mass emails
+
+
+    html = output[15:] # removes doctype declaration
+
+    # Turn these into plain/html MIMEText objects
+    part1 = MIMEText(text, "plain")
+
+
+    # Add HTML/plain-text parts to MIMEMultipart message
+    # The email client will try to render the last part first
+    message.attach(part1)
+
+
+    # Log in to server using secure context and send email
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+        server.login(sender_email, password)
+        server.sendmail(sender_email, receiver_email, message.as_string())
 
 
 
