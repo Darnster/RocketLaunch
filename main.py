@@ -23,7 +23,7 @@ It queries the Florida launch timetable page (https://floridareview.co.uk/things
 the results in an easy to read summary as a table in an HTML page.
 
 It then runs periodically using crond and uses md5 to determine whether the page has been updated and emails the output.
-.|.... may publish to a location on my phone instead???
+.||.... may publish to a location on my phone instead???
 
 Features Complete
 -----------------
