@@ -35,7 +35,7 @@ Features Complete (beyond version 1.0/1.1)
 TO DO
 -----
 1. Improve formatting on tables
-2. Add link to youtube channels
+2. Add link to youtube channels (https://www.youtube.com/c/spaceflightnowvideo)
 
 MUCH LATER
 ----------
@@ -189,9 +189,6 @@ def check_page_update(tags):
             Item={
                 'Digest': sig, }
         )
-
-        status_code = response['ResponseMetadata']['HTTPStatusCode']
-        print(status_code)
 
         log_run(sig, "updated", dynamodb)
         return True
