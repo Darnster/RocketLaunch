@@ -11,8 +11,8 @@ import email, smtplib, ssl
 import cfg_parser
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "2.1"
-__date__ = "19-02-2023"
+__version__ = "2.2"
+__date__ = "21-02-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -22,8 +22,9 @@ What this code does...
 It queries the Florida launch timetable page (https://floridareview.co.uk/things-to-do/current-launch-schedule) and returns 
 the results in an easy to read summary as a table in an HTML page.
 
-It then runs periodically using crond and uses md5 to determine whether the page has been updated and emails the output.
-.... may publish to a location on my phone instead???
+It then runs periodically using crond and uses md5 to determine whether the page has been updated and emails the output to a list of recipients
+define in teh config file.
+
 
 Features Complete (beyond version 1.0/1.1)
 -----------------
@@ -35,16 +36,15 @@ Features Complete (beyond version 1.0/1.1)
 TO DO
 -----
 1. Improve formatting on tables
-2. Add link to youtube channels (https://www.youtube.com/c/spaceflightnowvideo)
+2. Add link to youtube channels (https://www.youtube.com/c/spaceflightnowvideo, youtube.com/c/TheLaunchPad, https://www.youtube.com/live/21X5lGlDOfg)
+3. Modify config file to support a test mode
+4. Refactor into class(es)
 
 MUCH LATER
 ----------
 1. Plug password crypto back in (_rust import issue with this so app pwd now in the code)
 
 """
-
-working_directory = os.getcwd()
-
 
 def process():
     """
@@ -56,7 +56,7 @@ def process():
     # encrypted credentials for sending output via gmail
     recipients = config_dict.get("recipients")
 
-    # override bot protection on floridaview site
+    # override bot protection on floridareview site
     headers = {'User-Agent': 'SpaceSchedule'}
     content = requests.get("https://floridareview.co.uk:443/things-to-do/current-launch-schedule", headers=headers)
 
@@ -85,7 +85,13 @@ def process():
                     ctrl_flag = False
 
         output_string = generate_output(missions_array)
+
+        #write_html_to_s3(output_string)
         notify_update(output_string, recipients)
+
+def write_html_to_s3():
+    s3 = boto3.resource('s3')
+    bucket = s3.Bucket("rocketsbucket")
 
 
 def read_config(config):
@@ -96,49 +102,6 @@ def read_config(config):
     """
     cp = cfg_parser.config_parser()
     return cp.read(config)
-
-
-def notify_update( output, recipients):
-    from email import encoders
-    from email.mime.base import MIMEBase
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-
-    # gpwd = 'mpdndvqvvrgrwwcs'
-    config_dict = read_config("config.txt")
-    # encrypted credentials for sending output via gmail
-
-    gpwd = 'mpdndvqvvrgrwwcs'
-
-    subject = "Rocket Schedule Update"
-    text = "An update has been made to the page - exciting!"
-    sender_email = "rockets.spotter@gmail.com"
-    receiver_email = str.split(recipients, ",")
-    password = gpwd  # this is a google app password - uses pycrypto for this - see manual amend!
-
-    # Create a multipart message and set headers
-    message = MIMEMultipart("alternative")
-    message["From"] = sender_email
-    message["To"] = recipients
-    message["Subject"] = subject
-    message["Bcc"] = "rockets.spotter@gmail.com"  # Recommended for mass emails
-
-    html = output[15:]  # removes doctype declaration
-
-    # Turn these into plain/html MIMEText objects
-    part1 = MIMEText(text, "plain")
-    part2 = MIMEText(html, "html")
-
-    # Add HTML/plain-text parts to MIMEMultipart message
-    # The email client will try to render the last part first
-    message.attach(part1)
-    message.attach(part2)
-
-    # Log in to server using secure context and send email
-    context = ssl.create_default_context()
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-        server.login(sender_email, password)
-        server.sendmail(sender_email, receiver_email, message.as_string())
 
 
 def check_page_update(tags):
@@ -162,18 +125,16 @@ def check_page_update(tags):
 
     DigestQuery = table.scan()  # will only ever have one row in it
 
-    # add lndex error exception here for empty table
-
+    # add index error exception here for empty table
     Digest = DigestQuery["Items"][0]["Digest"]
 
     old_sig = Digest
-
+    #old_sig = "test"
     if sig == old_sig:
         # do nothing
         log_run(sig, "did not update", dynamodb)
         return False
     else:
-
         # delete existing Digest (tested and works):
         scan = table.scan()
         with table.batch_writer() as batch:
@@ -194,67 +155,74 @@ def check_page_update(tags):
         return True
 
 
-def log_run(sig, action, dynamodb):
+def process_h2(tag):
+    """
+    Get date in a form where it can be compared with sysdate
+    also return mission detail in an array
+    tag.text = 'January 3, 2023 - SpaceX Falcon 9, Transporter 6' (an example)
+                or March 2023 - SpaceX Falcon 9, Polaris Dawn' (an example)
+    :param tag:
+    :return: array [[<date>], <mission>, <taganchor>, <Launch Pad>]
+    """
+    month_dict = {  # used to pad leading zero
+        "January": "01",
+        "February": "02",
+        "March": "03",
+        "April": "04",
+        "May": "05",
+        "June": "06",
+        "July": "07",
+        "August": "08",
+        "September": "09",
+        "October": "10",
+        "November": "11",
+        "December": "12"
+    }
 
-    date_string = f'{datetime.now():%Y-%m-%d %H:%M:%S%z}'
-    output = "Script ran at %s and %s the output, digest was %s" % (date_string, action, sig[-4:])
+    details = tag.get_text()
+    # Need to make sure we are dealing with a date
+    if details[0:3] in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']:
+        # print(details)
 
-    table = dynamodb.Table('RocketsLog')
-    response = table.put_item(
-        Item={
-            'Signature': sig,
-            'Output' : output,
-            'LogTime' : date_string
-        }
-    )
-    # now email the log to rockets.spotter@gmail.com
-    notify_log(output)
+        """
+        January 3, 2023 - SpaceX Falcon 9, Transporter 6
+        March 2023 - SpaceX Falcon 9, Polaris Dawn
+        ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
+        ['March 2023']
 
+        bug #001 fix to this section.  Needed to remove processing of commas from date portion of the h2 tag as these are not uniformally structured 
 
-def notify_log(output):
-    from email import encoders
-    from email.mime.base import MIMEBase
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
+        # 'January 3, 2023 - SpaceX Falcon 9, Transporter 6'
+        # or 'March 2023 - SpaceX Falcon 9, Polaris Dawn'
+        # or 'February, 2023 - Relativity Space Terran 1, Good Luck, Have Fun'
+        """
+        mission_split = details.split("-")
+        mission_date = mission_split[0].replace(',', '')
+        mission_string = mission_split[1].strip()
 
-    config_dict = read_config("config.txt")
-    # encrypted credentials for sending output via gmail
-    pwd = config_dict.get("pwd")
-    key = config_dict.get("key")
+        human_date = mission_date.strip()
 
-    gpwd = 'mpdndvqvvrgrwwcs'
+        date_array = human_date.split(' ')
+        # do a length check here...
+        if len(date_array) == 3:  # 'January 3 2023'
+            # ['January','3',' 2023 ']
+            year = date_array[2]
+            # returns '2023'
+            day = date_array[1]
+            # returns ['January',' 3']
+            month = month_dict.get(date_array[0])
+        else:  # 'January 2023'
+            # ['January','2023']
+            year = date_array[1]
+            # returns '2023'
+            month = month_dict.get(date_array[0])
+            day = "null"
 
-    # ***********************************  need to look at email mime method, etc... ****************
-    subject = "Rockets Run Log"
-    text = output
-    sender_email = "rockets.spotter@gmail.com"
-    receiver_email = "rockets.spotter@gmail.com"
-    password = gpwd # this is a google app password - uses pycrypto for this - see manual amend!
-
-    # Create a multipart message and set headers
-    message = MIMEMultipart("alternative")
-    message["From"] = sender_email
-    message["To"] = "rockets.spotter@gmail.com"
-    message["Subject"] = subject
-    message["Bcc"] = "rockets.spotter@gmail.com"  # Recommended for mass emails
-
-    html = output[15:] # removes doctype declaration
-
-    # Turn these into plain/html MIMEText objects
-    part1 = MIMEText(text, "plain")
-
-
-    # Add HTML/plain-text parts to MIMEMultipart message
-    # The email client will try to render the last part first
-    message.attach(part1)
-
-
-    # Log in to server using secure context and send email
-    context = ssl.create_default_context()
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-        server.login(sender_email, password)
-        server.sendmail(sender_email, receiver_email, message.as_string())
-
+        # get tag id so we can use the anchor in the details link
+        anchor = tag.get('id')
+        return [[year, month, day], human_date, mission_string, anchor]
+    else:
+        pass
 
 
 def generate_output(missions_array):
@@ -356,76 +324,109 @@ def create_mission_row(mission):
     return row_string
 
 
-def process_h2(tag):
-    """
-    Get date in a form where it can be compared with sysdate
-    also return mission detail in an array
-    tag.text = 'January 3, 2023 - SpaceX Falcon 9, Transporter 6' (an example)
-                or March 2023 - SpaceX Falcon 9, Polaris Dawn' (an example)
-    :param tag:
-    :return: array [[<date>], <mission>, <taganchor>, <Launch Pad>]
-    """
-    month_dict = {  # used to pad leading zero
-        "January": "01",
-        "February": "02",
-        "March": "03",
-        "April": "04",
-        "May": "05",
-        "June": "06",
-        "July": "07",
-        "August": "08",
-        "September": "09",
-        "October": "10",
-        "November": "11",
-        "December": "12"
-    }
+def notify_update( output, recipients):
+    from email import encoders
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
 
-    details = tag.get_text()
-    # Need to make sure we are dealing with a date
-    if details[0:3] in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']:
-        # print(details)
+    # gpwd = 'mpdndvqvvrgrwwcs'
+    config_dict = read_config("config.txt")
+    # encrypted credentials for sending output via gmail
 
-        """
-        January 3, 2023 - SpaceX Falcon 9, Transporter 6
-        March 2023 - SpaceX Falcon 9, Polaris Dawn
-        ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
-        ['March 2023']
+    gpwd = 'mpdndvqvvrgrwwcs'
 
-        bug #001 fix to this section.  Needed to remove processing of commas from date portion of the h2 tag as these are not uniformally structured 
+    subject = "Rocket Schedule Update"
+    text = "An update has been made to the page - exciting!"
+    sender_email = "rockets.spotter@gmail.com"
+    receiver_email = str.split(recipients, ",")
+    password = gpwd  # this is a google app password - uses pycrypto for this - see manual amend!
 
-        # 'January 3, 2023 - SpaceX Falcon 9, Transporter 6'
-        # or 'March 2023 - SpaceX Falcon 9, Polaris Dawn'
-        # or 'February, 2023 - Relativity Space Terran 1, Good Luck, Have Fun'
-        """
-        mission_split = details.split("-")
-        mission_date = mission_split[0].replace(',', '')
-        mission_string = mission_split[1].strip()
+    # Create a multipart message and set headers
+    message = MIMEMultipart("alternative")
+    message["From"] = sender_email
+    message["To"] = recipients
+    message["Subject"] = subject
+    message["Bcc"] = "rockets.spotter@gmail.com"  # Recommended for mass emails
 
-        human_date = mission_date.strip()
+    html = output[15:]  # removes doctype declaration
 
-        date_array = human_date.split(' ')
-        # do a length check here...
-        if len(date_array) == 3:  # 'January 3 2023'
-            # ['January','3',' 2023 ']
-            year = date_array[2]
-            # returns '2023'
-            day = date_array[1]
-            # returns ['January',' 3']
-            month = month_dict.get(date_array[0])
+    # Turn these into plain/html MIMEText objects
+    part1 = MIMEText(text, "plain")
+    part2 = MIMEText(html, "html")
+
+    # Add HTML/plain-text parts to MIMEMultipart message
+    # The email client will try to render the last part first
+    message.attach(part1)
+    message.attach(part2)
+
+    # Log in to server using secure context and send email
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+        server.login(sender_email, password)
+        server.sendmail(sender_email, receiver_email, message.as_string())
 
 
-        else:  # 'January 2023'
-            # ['January','2023']
-            year = date_array[1]
-            # returns '2023'
-            month = month_dict.get(date_array[0])
-            day = "null"
+def log_run(sig, action, dynamodb):
 
-        # get tag id so we can use the anchor in the details link
-        anchor = tag.get('id')
-        return [[year, month, day], human_date, mission_string, anchor]
-    else:
-        pass
+    date_string = f'{datetime.now():%Y-%m-%d %H:%M:%S%z}'
+    output = "Script ran at %s and %s the output, digest was %s" % (date_string, action, sig[-4:])
+
+    table = dynamodb.Table('RocketsLog')
+    response = table.put_item(
+        Item={
+            'Signature': sig,
+            'Output' : output,
+            'LogTime' : date_string
+        }
+    )
+    # now email the log to rockets.spotter@gmail.com
+    notify_log(output)
+
+
+def notify_log(output):
+    from email import encoders
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    config_dict = read_config("config.txt")
+    # encrypted credentials for sending output via gmail
+    pwd = config_dict.get("pwd")
+    key = config_dict.get("key")
+
+    gpwd = 'mpdndvqvvrgrwwcs'
+
+    # ***********************************  need to look at email mime method, etc... ****************
+    subject = "Rockets Run Log"
+    text = output
+    sender_email = "rockets.spotter@gmail.com"
+    receiver_email = "rockets.spotter@gmail.com"
+    password = gpwd # this is a google app password - uses pycrypto for this - see manual amend!
+
+    # Create a multipart message and set headers
+    message = MIMEMultipart("alternative")
+    message["From"] = sender_email
+    message["To"] = "rockets.spotter@gmail.com"
+    message["Subject"] = subject
+    message["Bcc"] = "rockets.spotter@gmail.com"  # Recommended for mass emails
+
+    html = output[15:] # removes doctype declaration
+
+    # Turn these into plain/html MIMEText objects
+    part1 = MIMEText(text, "plain")
+
+
+    # Add HTML/plain-text parts to MIMEMultipart message
+    # The email client will try to render the last part first
+    message.attach(part1)
+
+
+    # Log in to server using secure context and send email
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+        server.login(sender_email, password)
+        server.sendmail(sender_email, receiver_email, message.as_string())
 
 
 if __name__ == "__main__":
