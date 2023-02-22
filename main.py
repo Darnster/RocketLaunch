@@ -39,7 +39,7 @@ TO DO
 1. Improve formatting on tables
 2. Add link to youtube channels (https://www.youtube.com/c/spaceflightnowvideo, youtube.com/c/TheLaunchPad, https://www.youtube.com/live/21X5lGlDOfg)
 3. Modify config file to support a test mode
-4. Refactor into class(es)
+
 
 MUCH LATER
 ----------
