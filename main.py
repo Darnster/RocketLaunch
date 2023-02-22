@@ -94,8 +94,7 @@ class Launch(object):
 
             output_string = self.generate_output(missions_array)
 
-            #write_html_to_s3(output_string)
-            self.notify_update(output_string, recipients)
+            self.notify_update(output_string)
 
     def write_html_to_s3(self):
         s3 = boto3.resource('s3')
@@ -332,7 +331,7 @@ class Launch(object):
         return row_string
 
 
-    def notify_update(self, output, recipients):
+    def notify_update(self, output ):
         from email import encoders
         from email.mime.base import MIMEBase
         from email.mime.multipart import MIMEMultipart
@@ -405,8 +404,8 @@ class Launch(object):
 
         config_dict = self.read_config("config.txt")
         # encrypted credentials for sending output via gmail
-        pwd = config_dict.get("pwd")
-        key = config_dict.get("key")
+        #pwd = config_dict.get("pwd")
+        #key = config_dict.get("key")
 
         gpwd = 'mpdndvqvvrgrwwcs'
 
