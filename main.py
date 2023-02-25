@@ -9,10 +9,11 @@ import calendar
 import hashlib
 import email, smtplib, ssl
 import cfg_parser
+import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "2.3"
-__date__ = "22-02-2023"
+__version__ = "2.4"
+__date__ = "25-02-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -32,13 +33,14 @@ Features Complete (beyond version 1.0/1.1)
 2. Checked over minor differences between 1.0 and 1.1 and update (notifications elements).
 3. AWS cron is in place
 4. Initial encapsulation of code in Launch class
-
+5. Modified config file to support a test mode
+6. Made table output more concise
 
 TO DO
 -----
 1. Improve formatting on tables
 2. Add link to youtube channels (https://www.youtube.com/c/spaceflightnowvideo, youtube.com/c/TheLaunchPad, https://www.youtube.com/live/21X5lGlDOfg)
-3. Modify config file to support a test mode
+
 
 
 MUCH LATER
@@ -47,9 +49,11 @@ MUCH LATER
 
 """
 
+
 def process():
     l = Launch()
     l.process()
+
 
 class Launch(object):
 
@@ -100,8 +104,7 @@ class Launch(object):
         s3 = boto3.resource('s3')
         bucket = s3.Bucket("rocketsbucket")
 
-
-    def read_config(self,config):
+    def read_config(self, config):
         """
         Read from config file into a dictionary
         :param config: text file with
@@ -110,8 +113,7 @@ class Launch(object):
         cp = cfg_parser.config_parser()
         return cp.read(config)
 
-
-    def check_page_update(self,tags):
+    def check_page_update(self, tags):
         """
         Generate a signature for incoming data and compare with the last version
         :param tags: multidemensional array of data returned from the web page
@@ -126,7 +128,8 @@ class Launch(object):
         dynamodb = boto3.resource('dynamodb',
                                   region_name='eu-west-2',
                                   endpoint_url='http://dynamodb.eu-west-2.amazonaws.com')
-        table = dynamodb.Table('RocketsDigest')
+        table = self.config_dict.get("digest_table")
+        table = dynamodb.Table(table)
 
         DigestQuery = table.scan()  # will only ever have one row in it
 
@@ -134,7 +137,7 @@ class Launch(object):
         Digest = DigestQuery["Items"][0]["Digest"]
 
         old_sig = Digest
-        #old_sig = "test"
+        # old_sig = "test"
 
         # now compare
         if sig == old_sig:
@@ -161,8 +164,7 @@ class Launch(object):
             self.log_run(sig, "updated", dynamodb)
             return True
 
-
-    def process_h2(self,tag):
+    def process_h2(self, tag):
         """
         Get date in a form where it can be compared with sysdate
         also return mission detail in an array
@@ -196,14 +198,14 @@ class Launch(object):
             March 2023 - SpaceX Falcon 9, Polaris Dawn
             ['March 2023', 'SpaceX Falcon 9, Polaris Dawn']
             ['March 2023']
-    
+
             bug #001 fix to this section.  Needed to remove processing of commas from date portion of the h2 tag as these are not uniformally structured 
-    
+
             # 'January 3, 2023 - SpaceX Falcon 9, Transporter 6'
             # or 'March 2023 - SpaceX Falcon 9, Polaris Dawn'
             # or 'February, 2023 - Relativity Space Terran 1, Good Luck, Have Fun'
             """
-            mission_split = details.split("-")
+            mission_split = details.split("-", 1)
             mission_date = mission_split[0].replace(',', '')
             mission_string = mission_split[1].strip()
 
@@ -231,8 +233,7 @@ class Launch(object):
         else:
             pass
 
-
-    def generate_output(self,missions_array):
+    def generate_output(self, missions_array):
         """
         Generates html, filtered by sys date (should mak the sysdate part configurable?)
         :return:
@@ -246,26 +247,27 @@ class Launch(object):
         <style type = text/css>
         .styled-table {
         border-collapse: collapse;
-        margin: 25px 0;
-        font-size: 0.9em;
+        margin: 15px 0;
+        font-size: 0.8em;
         font-family: sans-serif;
         min-width: 400px;
         box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
         }
         h1 {
-        font-size: 3em;
+        font-size: 2em;
         font-family: sans-serif;
         }
         body {
-        font-size: 0.9em;
+        font-size: 0.7em;
         font-family: sans-serif;
         }
         </style>
         <title>Space Launch Summary</title></head>
                         <body>
-                        <h1>Space Launch Summary</h1>
+                        <h1>Space Launch Summary %s</h1>
                         <p>Generated from 
-                        <a href= "https://floridareview.co.uk/things-to-do/current-launch-schedule">https://floridareview.co.uk/things-to-do/current-launch-schedule</a> on %s""" % date_string
+                        <a href= "https://floridareview.co.uk/things-to-do/current-launch-schedule">https://floridareview.co.uk/things-to-do/current-launch-schedule</a> on %s""" % (
+        self.config_dict.get("broadcast", ""), date_string)
 
         html_footer = """</body>
                         </html>"""
@@ -275,7 +277,6 @@ class Launch(object):
                 <th nowrap>Date</th>
                 <th>Mission</th>
                 <th>Launch Pad</th>
-                <th>More Information</th>
             </tr>
         </thead>
         <tbody>\n"""
@@ -305,8 +306,7 @@ class Launch(object):
                 table_detail_string += mission_row_string
         return html_head + table_head + table_detail_string + table_footer + html_footer
 
-
-    def create_mission_row(self,mission):
+    def create_mission_row(self, mission):
         """
         Generate table row from:
         [['2023', '01', '31'],
@@ -318,20 +318,40 @@ class Launch(object):
         :return:
         """
         base_site_url = "https://floridareview.co.uk/things-to-do/current-launch-schedule"
+
+        """
+        see if there's a time in mission[4]
+        """
         row_string = "<tr>"
         # human date
-        row_string += "<td>%s</td>" % mission[1]
+        t_string = "...."
+        t = re.search(r'\s(\d{1}\:\d{2}\s?(?:A\.M\.|P\.M\.|a\.m\.|p\.m\.))', mission[4])
+        if t:
+            t_string = t[0]
+            row_string += "<td>%s &#64; %s</td>" % (mission[1], t_string)
+        else:
+            row_string += "<td>%s</td>" % mission[1]
         # mission details
-        row_string += "<td>%s</td>" % mission[2]
+        row_string += "<td><a href = %s#%s>%s</a></td>" % (base_site_url, mission[3], mission[2])
         # launch details
-        row_string += "<td>%s</td>" % mission[4]
-        # link
-        row_string += "<td><a href = %s#%s>Details</a></td>" % (base_site_url, mission[3])
+        # example Launch is from launch pad SLC-40 with a launch time of 1.12PM EST.
+        # 1 split on "with"
+        # 2 regex search on launchpad * and return
+        match_exp = r'\s((?:launch pad|launchpad).*)'
+        lp_split = str.split(mission[4], " with ")
+        lp_length = len(lp_split)
+        if lp_length > 1:  # has time portion on end
+            launchpad = re.search(match_exp, lp_split[0])[0]
+        else:  # no time portion
+            launchpad = re.search(match_exp, mission[4])[0]
+        launchpad = str.replace(launchpad, "launchpad ", "")
+        launchpad = str.replace(launchpad, "launch pad ", "")
+        launchpad = str.replace(launchpad, ".", "")
+        row_string += "<td>%s</td>" % launchpad
         row_string += "</tr>\n"
         return row_string
 
-
-    def notify_update(self, output ):
+    def notify_update(self, output):
         from email import encoders
         from email.mime.base import MIMEBase
         from email.mime.multipart import MIMEMultipart
@@ -344,7 +364,7 @@ class Launch(object):
 
         gpwd = 'mpdndvqvvrgrwwcs'
 
-        subject = "Rocket Schedule Update"
+        subject = self.config_dict.get("email_notification_subject")
         text = "An update has been made to the page - exciting!"
         sender_email = "rockets.spotter@gmail.com"
         receiver_email = str.split(recipients, ",")
@@ -374,29 +394,29 @@ class Launch(object):
             server.login(sender_email, password)
             server.sendmail(sender_email, receiver_email, message.as_string())
 
-
     def log_run(self, sig, action, dynamodb):
 
         date_string = f'{datetime.now():%Y-%m-%d %H:%M:%S%z}'
         output = "Script ran at %s and %s the output, digest was %s" % (date_string, action, sig[-4:])
 
-        table = dynamodb.Table('RocketsLog')
+        log_table = self.config_dict.get("log_table")
+
+        table = dynamodb.Table(log_table)
 
         # hack here - need to update the table fields to match
         # with signature in the primary field it wasn's logging eac run only when it changed
         response = table.put_item(
             Item={
-                'Signature': date_string,
-                'Output' : output,
-                'LogTime': sig
+                'LogTime': date_string,
+                'Output': output,
+                'Signature': sig
 
             }
         )
         # now email the log to rockets.spotter@gmail.com
         self.notify_log(output)
 
-
-    def notify_log(self,output):
+    def notify_log(self, output):
         from email import encoders
         from email.mime.base import MIMEBase
         from email.mime.multipart import MIMEMultipart
@@ -404,17 +424,17 @@ class Launch(object):
 
         config_dict = self.read_config("config.txt")
         # encrypted credentials for sending output via gmail
-        #pwd = config_dict.get("pwd")
-        #key = config_dict.get("key")
+        # pwd = config_dict.get("pwd")
+        # key = config_dict.get("key")
 
         gpwd = 'mpdndvqvvrgrwwcs'
 
         # ***********************************  need to look at email mime method, etc... ****************
-        subject = "Rockets Run Log"
+        subject = self.config_dict.get("email_log_subject")
         text = output
         sender_email = "rockets.spotter@gmail.com"
         receiver_email = "rockets.spotter@gmail.com"
-        password = gpwd # this is a google app password - uses pycrypto for this - see manual amend!
+        password = gpwd  # this is a google app password - uses pycrypto for this - see manual amend!
 
         # Create a multipart message and set headers
         message = MIMEMultipart("alternative")
@@ -423,16 +443,14 @@ class Launch(object):
         message["Subject"] = subject
         message["Bcc"] = "rockets.spotter@gmail.com"  # Recommended for mass emails
 
-        html = output[15:] # removes doctype declaration
+        html = output[15:]  # removes doctype declaration
 
         # Turn these into plain/html MIMEText objects
         part1 = MIMEText(text, "plain")
 
-
         # Add HTML/plain-text parts to MIMEMultipart message
         # The email client will try to render the last part first
         message.attach(part1)
-
 
         # Log in to server using secure context and send email
         context = ssl.create_default_context()
