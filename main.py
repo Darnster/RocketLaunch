@@ -12,7 +12,7 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "2.5"
+__version__ = "2.6"
 __date__ = "26-02-2023"
 
 """
@@ -36,6 +36,7 @@ Features Complete (beyond version 1.0/1.1)
 5. Modified config file to support a test mode
 6. Made table output more concise
 7. Improved formatting on tables and added "broadcast" message capability
+8. Added links to youtube channels
 
 TO DO
 -----
@@ -286,8 +287,9 @@ class Launch(object):
                         <a href= "https://floridareview.co.uk/things-to-do/current-launch-schedule">https://floridareview.co.uk/things-to-do/current-launch-schedule</a> on %s
                         <p>%s""" % (date_string, self.config_dict.get("broadcast", ""))
 
-        html_footer = """</body>
-                        </html>"""
+        html_footer = """<p>Watch LIVE launches on <a href=https://www.youtube.com/watch?v=5VH31rC84Vw>Space flight Now</a> or <a href=https://www.youtube.com/watch?v=CunF9QllJzU>The Launch Pad</a>.
+		<p>Also on <a href=https://www.youtube.com/watch?v=21X5lGlDOfg>NASA Live TV</a> too, but there's lots of other stuff on this channel that seems to get in the way!</body>
+                    </html>"""
 
         table_head = """
         <table class = "styled-table"><thead><tr align=left>
