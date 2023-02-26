@@ -12,8 +12,8 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "2.4"
-__date__ = "25-02-2023"
+__version__ = "2.5"
+__date__ = "26-02-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -35,11 +35,12 @@ Features Complete (beyond version 1.0/1.1)
 4. Initial encapsulation of code in Launch class
 5. Modified config file to support a test mode
 6. Made table output more concise
+7. Improved formatting on tables and added "broadcast" message capability
 
 TO DO
 -----
-1. Improve formatting on tables
-2. Add link to youtube channels (https://www.youtube.com/c/spaceflightnowvideo, youtube.com/c/TheLaunchPad, https://www.youtube.com/live/21X5lGlDOfg)
+1. Add link to youtube channels (https://www.youtube.com/c/spaceflightnowvideo, youtube.com/c/TheLaunchPad, https://www.youtube.com/live/21X5lGlDOfg)
+
 
 
 
@@ -120,49 +121,53 @@ class Launch(object):
         :return: Boolean
         """
 
-        sig = hashlib.shake_128()
-        sig.update(str.encode(str(tags)))
-        sig = sig.hexdigest(32)
+        if self.config_dict.get("sig_check") == "1":  # for testing - saves time editing the Sig in DynamoDB
 
-        # DynamoDB stuff here
-        dynamodb = boto3.resource('dynamodb',
-                                  region_name='eu-west-2',
-                                  endpoint_url='http://dynamodb.eu-west-2.amazonaws.com')
-        table = self.config_dict.get("digest_table")
-        table = dynamodb.Table(table)
+            sig = hashlib.shake_128()
+            sig.update(str.encode(str(tags)))
+            sig = sig.hexdigest(32)
 
-        DigestQuery = table.scan()  # will only ever have one row in it
+            # DynamoDB stuff here
+            dynamodb = boto3.resource('dynamodb',
+                                      region_name='eu-west-2',
+                                      endpoint_url='http://dynamodb.eu-west-2.amazonaws.com')
+            table = self.config_dict.get("digest_table")
+            table = dynamodb.Table(table)
 
-        # add index error exception here for empty table
-        Digest = DigestQuery["Items"][0]["Digest"]
+            DigestQuery = table.scan()  # will only ever have one row in it
 
-        old_sig = Digest
-        # old_sig = "test"
+            # add index error exception here for empty table
+            Digest = DigestQuery["Items"][0]["Digest"]
 
-        # now compare
-        if sig == old_sig:
-            # do nothing
-            self.log_run(sig, "did not update", dynamodb)
-            return False
+            old_sig = Digest
+            # old_sig = "test"
+
+            # now compare
+            if sig == old_sig:
+                # do nothing
+                self.log_run(sig, "did not update", dynamodb)
+                return False
+            else:
+                # delete existing Digest (tested and works):
+                scan = table.scan()
+                with table.batch_writer() as batch:
+                    for each in scan['Items']:
+                        batch.delete_item(
+                            Key={
+                                'Digest': each['Digest']
+                            }
+                        )
+
+                # Insert new digest
+                response = table.put_item(
+                    Item={
+                        'Digest': sig, }
+                )
+
+                self.log_run(sig, "updated", dynamodb)
+                return True
         else:
-            # delete existing Digest (tested and works):
-            scan = table.scan()
-            with table.batch_writer() as batch:
-                for each in scan['Items']:
-                    batch.delete_item(
-                        Key={
-                            'Digest': each['Digest']
-                        }
-                    )
-
-            # Insert new digest
-            response = table.put_item(
-                Item={
-                    'Digest': sig, }
-            )
-
-            self.log_run(sig, "updated", dynamodb)
-            return True
+            return True  # will generate the output regardless
 
     def process_h2(self, tag):
         """
@@ -246,34 +251,46 @@ class Launch(object):
         <meta charset="utf-8" />
         <style type = text/css>
         .styled-table {
-        border-collapse: collapse;
-        margin: 15px 0;
+        border: collapse;
+        margin: 25px 0;
         font-size: 0.8em;
         font-family: sans-serif;
         min-width: 400px;
         box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
         }
+    	.styled-table th, 
+    	.styled-table td { 
+    	border: collapse;
+    	vertical-align: top;
+    	}
+
+    	.styled-table tr.d0 td {
+    	  background-color: #e6f1fc;
+    	}
+    	.styled-table tr.d1 td {
+    	  background-color: #EEEEEE;
+    	}
         h1 {
-        font-size: 2em;
+        font-size: 1.5em;
         font-family: sans-serif;
         }
         body {
-        font-size: 0.7em;
+        font-size: 0.8em;
         font-family: sans-serif;
         }
         </style>
         <title>Space Launch Summary</title></head>
                         <body>
-                        <h1>Space Launch Summary %s</h1>
+                        <h1>Space Launch Summary</h1>
                         <p>Generated from 
-                        <a href= "https://floridareview.co.uk/things-to-do/current-launch-schedule">https://floridareview.co.uk/things-to-do/current-launch-schedule</a> on %s""" % (
-        self.config_dict.get("broadcast", ""), date_string)
+                        <a href= "https://floridareview.co.uk/things-to-do/current-launch-schedule">https://floridareview.co.uk/things-to-do/current-launch-schedule</a> on %s
+                        <p>%s""" % (date_string, self.config_dict.get("broadcast", ""))
 
         html_footer = """</body>
                         </html>"""
 
         table_head = """
-        <table class = "styled-table"><thead><tr>
+        <table class = "styled-table"><thead><tr align=left>
                 <th nowrap>Date</th>
                 <th>Mission</th>
                 <th>Launch Pad</th>
@@ -289,8 +306,9 @@ class Launch(object):
         """
         table_detail_string = ""
         current_day = (int(time.time() // 86400)) * 86400  # output = 6614352000
-
+        style_count = 0  # used for alternate style on table rows
         for mission in missions_array:
+            style_count += 1
             # print(mission)
             # first assign any null days (no date defined in schedyule) to 1st of month for comparison only
             if mission[0][2] == "null":
@@ -302,11 +320,11 @@ class Launch(object):
             mission_date = calendar.timegm(mission_date.timetuple())
             if mission_date >= current_day:
                 # print("mission_date = %s, current_time = %s" % (mission_date, current_time))
-                mission_row_string = self.create_mission_row(mission)
+                mission_row_string = self.create_mission_row(mission, style_count)
                 table_detail_string += mission_row_string
         return html_head + table_head + table_detail_string + table_footer + html_footer
 
-    def create_mission_row(self, mission):
+    def create_mission_row(self, mission, style_count):
         """
         Generate table row from:
         [['2023', '01', '31'],
@@ -319,18 +337,22 @@ class Launch(object):
         """
         base_site_url = "https://floridareview.co.uk/things-to-do/current-launch-schedule"
 
+        # set style for this row
+        if style_count % 2 == 0:
+            row_string = "<tr class=d0>"
+        else:
+            row_string = "<tr class=d1>"
+        # human date
         """
         see if there's a time in mission[4]
         """
-        row_string = "<tr>"
-        # human date
         t_string = "...."
         t = re.search(r'\s(\d{1}\:\d{2}\s?(?:A\.M\.|P\.M\.|a\.m\.|p\.m\.))', mission[4])
         if t:
             t_string = t[0]
-            row_string += "<td>%s &#64; %s</td>" % (mission[1], t_string)
+            row_string += "<td nowrap>%s &#64; %s</td>" % (mission[1], t_string)
         else:
-            row_string += "<td>%s</td>" % mission[1]
+            row_string += "<td nowrap>%s</td>" % mission[1]
         # mission details
         row_string += "<td><a href = %s#%s>%s</a></td>" % (base_site_url, mission[3], mission[2])
         # launch details
@@ -347,7 +369,9 @@ class Launch(object):
         launchpad = str.replace(launchpad, "launchpad ", "")
         launchpad = str.replace(launchpad, "launch pad ", "")
         launchpad = str.replace(launchpad, ".", "")
+
         row_string += "<td>%s</td>" % launchpad
+
         row_string += "</tr>\n"
         return row_string
 
@@ -422,7 +446,6 @@ class Launch(object):
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
 
-        config_dict = self.read_config("config.txt")
         # encrypted credentials for sending output via gmail
         # pwd = config_dict.get("pwd")
         # key = config_dict.get("key")
