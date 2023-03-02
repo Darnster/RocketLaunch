@@ -12,8 +12,8 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "2.7"
-__date__ = "01-03-2023"
+__version__ = "2.8"
+__date__ = "02-03-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -38,10 +38,12 @@ Features Complete (beyond version 1.0/1.1)
 7. Improved formatting on tables an added "broadcast" message capability
 8. Added links to youtube channels
 9. V2.7 - fixed bugs with "NET..." launches not being picked up and mission date regex not matching 2 digit hours! 
+10. Incorporated entries starting with "quarter", e.g. 'Quarter 2, 2023 - SpaceX Falcon 9, Galaxy 37'
 
 TO DO
 -----
-1. Add link to youtube channels (https://www.youtube.com/c/spaceflightnowvideo, youtube.com/c/TheLaunchPad, https://www.youtube.com/live/21X5lGlDOfg)
+1. Maybe update to local UK time?
+
 
 
 
@@ -197,7 +199,8 @@ class Launch(object):
 
         details = tag.get_text()
         # Need to make sure we are dealing with a date
-        if details[0:3] in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'NET']:
+        if details[0:3] in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'NET',
+                            'Qua']:
             # print(details)
 
             """
@@ -211,12 +214,20 @@ class Launch(object):
             # 'January 3, 2023 - SpaceX Falcon 9, Transporter 6'
             # or 'March 2023 - SpaceX Falcon 9, Polaris Dawn'
             # or 'February, 2023 - Relativity Space Terran 1, Good Luck, Have Fun'
+            # or 'NET March 2, 2023 - SpaceX Falcon 9, USCV-6 (NASA Crew Flight 6)'
             """
 
             # first deal with the NET entries!
             if str.lower(details[
                          0:3]) == 'net':  # need to remove the the start from "NET March 2, 2023 - SpaceX Falcon 9, USCV-6 (NASA Crew Flight 6)"
                 details = details[4:]  # need to get the space too, so it trims the start and leaves the date in place
+
+            # next deal with those dates that are allocate to a quarter
+            if str.lower(details[0:3]) == 'qua':  # "Quarter 2, 2023 - SpaceX Falcon 9, Galaxy 37"
+                quarter_dict = {"2": "June 30",
+                                "3": "September 30",
+                                "4": "December 31"}
+                details = "%s%s ***allocated to Quarter %s***" % (quarter_dict.get(details[8]), details[9:], details[8])
 
             mission_split = details.split("-", 1)
             mission_date = mission_split[0].replace(',', '')
@@ -294,7 +305,8 @@ class Launch(object):
                         <a href= "https://floridareview.co.uk/things-to-do/current-launch-schedule">https://floridareview.co.uk/things-to-do/current-launch-schedule</a> on %s
                         <p>%s""" % (date_string, self.config_dict.get("broadcast", ""))
 
-        html_footer = """<p>Watch LIVE launches on <a href=https://www.youtube.com/live/MWelnI4zJpU>Space flight Now</a> or <a href=https://www.youtube.com/watch?v=CunF9QllJzU>The Launch Pad</a>.
+        html_footer = """<p><b>You can also check Florida launch schedules <a href=https://www.spacelaunchschedule.com/category/fl/>here</a></b>
+        <p>Watch LIVE launches on <a href=https://www.youtube.com/live/MWelnI4zJpU>Space flight Now</a> or <a href=https://www.youtube.com/watch?v=CunF9QllJzU>The Launch Pad</a>.
 		<p>Also on <a href=https://www.youtube.com/watch?v=21X5lGlDOfg>NASA Live TV</a> too, but there's lots of other stuff on this channel that seems to get in the way!</body>
                     </html>"""
 
