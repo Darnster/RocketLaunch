@@ -12,8 +12,8 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "2.8"
-__date__ = "02-03-2023"
+__version__ = "2.9"
+__date__ = "06-03-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -39,6 +39,7 @@ Features Complete (beyond version 1.0/1.1)
 8. Added links to youtube channels
 9. V2.7 - fixed bugs with "NET..." launches not being picked up and mission date regex not matching 2 digit hours! 
 10. Incorporated entries starting with "quarter", e.g. 'Quarter 2, 2023 - SpaceX Falcon 9, Galaxy 37'
+11. Updated the check_page_update to assign old_sig to "test" when sig_check = 0 in config, added stderr logging for old and new sig
 
 TO DO
 -----
@@ -79,7 +80,6 @@ class Launch(object):
 
         soup = BeautifulSoup(content.text, 'html.parser')
         tags = soup.find_all(['h2', 'p'])  # Extract and return first occurrence of h2
-        #  print(tags)  # Print row with HTML formatting
         if self.check_page_update(tags):  # see if digest of tags array is different
             # need to build an array of arrays here, e.g. [[date],mission_details,launch pad, link] link -> #march72023-spacexfalcon9intelsat40e
             missions_array = []
@@ -92,7 +92,6 @@ class Launch(object):
                     mission = self.process_h2(tag)
                     if mission:
                         this_mission = mission
-                        # print(this_mission)
                         ctrl_flag = True
 
                 if ctrl_flag:
@@ -125,53 +124,55 @@ class Launch(object):
         :return: Boolean
         """
 
-        if self.config_dict.get("sig_check") == "1":  # for testing - saves time editing the Sig in DynamoDB
+        sig = hashlib.shake_128()
+        sig.update(str.encode(str(tags)))
+        sig = sig.hexdigest(32)
 
-            sig = hashlib.shake_128()
-            sig.update(str.encode(str(tags)))
-            sig = sig.hexdigest(32)
+        sys.stderr.write("new signature = %s\n" % str(sig))
 
-            # DynamoDB stuff here
-            dynamodb = boto3.resource('dynamodb',
-                                      region_name='eu-west-2',
-                                      endpoint_url='http://dynamodb.eu-west-2.amazonaws.com')
-            table = self.config_dict.get("digest_table")
-            table = dynamodb.Table(table)
+        # DynamoDB stuff here
+        dynamodb = boto3.resource('dynamodb',
+                                  region_name='eu-west-2',
+                                  endpoint_url='http://dynamodb.eu-west-2.amazonaws.com')
+        table = self.config_dict.get("digest_table")
+        table = dynamodb.Table(table)
 
-            DigestQuery = table.scan()  # will only ever have one row in it
+        DigestQuery = table.scan()  # will only ever have one row in it
 
-            # add index error exception here for empty table
-            Digest = DigestQuery["Items"][0]["Digest"]
+        # add index error exception here for empty table
+        Digest = DigestQuery["Items"][0]["Digest"]
 
-            old_sig = Digest
-            # old_sig = "test"
+        sys.stderr.write("old signature = %s\n" % str(Digest))
 
-            # now compare
-            if sig == old_sig:
-                # do nothing
-                self.log_run(sig, "did not update", dynamodb)
-                return False
-            else:
-                # delete existing Digest (tested and works):
-                scan = table.scan()
-                with table.batch_writer() as batch:
-                    for each in scan['Items']:
-                        batch.delete_item(
-                            Key={
-                                'Digest': each['Digest']
-                            }
-                        )
-
-                # Insert new digest
-                response = table.put_item(
-                    Item={
-                        'Digest': sig, }
-                )
-
-                self.log_run(sig, "updated", dynamodb)
-                return True
+        if self.config_dict.get("sig_check") == "0":  # for testing - saves time editing the Sig in DynamoDB
+            old_sig = "test"
         else:
-            return True  # will generate the output regardless
+            old_sig = Digest
+
+        # now compare
+        if sig == old_sig:
+            # do nothing
+            self.log_run(sig, "did not update", dynamodb)
+            return False
+        else:
+            # delete existing Digest (tested and works):
+            scan = table.scan()
+            with table.batch_writer() as batch:
+                for each in scan['Items']:
+                    batch.delete_item(
+                        Key={
+                            'Digest': each['Digest']
+                        }
+                    )
+
+            # Insert new digest
+            response = table.put_item(
+                Item={
+                    'Digest': sig, }
+            )
+
+            self.log_run(sig, "updated", dynamodb)
+            return True
 
     def process_h2(self, tag):
         """
