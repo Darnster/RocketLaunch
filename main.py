@@ -1,5 +1,3 @@
-import boto3
-from boto3.dynamodb.conditions import Key, Attr
 from bs4 import BeautifulSoup
 import requests
 import sys, os
@@ -12,8 +10,8 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "2.9"
-__date__ = "06-03-2023"
+__version__ = "2.10a"
+__date__ = "08-03-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -40,10 +38,12 @@ Features Complete (beyond version 1.0/1.1)
 9. V2.7 - fixed bugs with "NET..." launches not being picked up and mission date regex not matching 2 digit hours! 
 10. Incorporated entries starting with "quarter", e.g. 'Quarter 2, 2023 - SpaceX Falcon 9, Galaxy 37'
 11. Updated the check_page_update to assign old_sig to "test" when sig_check = 0 in config, added stderr logging for old and new sig
+12. Refactored calls to cloud environment into separate class DataAccessCloud.py
 
 TO DO
 -----
-1. Maybe update to local UK time?
+1. Add class for local dataAccess (to files on disk) - will be DataAccessLocal
+2. Maybe update to local UK time?
 
 
 
@@ -64,7 +64,7 @@ def process():
 class Launch(object):
 
     def __init__(self):
-        pass
+        self.dataAccess = None
 
     def process(self):
         """
@@ -72,7 +72,15 @@ class Launch(object):
         :return:
         """
 
-        self.config_dict = self.read_config("config.txt")
+        self.config_dict = self.read_config("config_test.txt")
+
+        if self.config_dict.get("environment") == "cloud":
+            import DataAccessCloud
+            self.dataAccess = DataAccessCloud.dataAccess()
+        else:
+           import DataAccessLocal
+           self.dataAccess = DataAccessLocal.dataAccess()
+
 
         # override bot protection on floridareview site
         headers = {'User-Agent': 'SpaceSchedule'}
@@ -104,9 +112,6 @@ class Launch(object):
 
             self.notify_update(output_string)
 
-    def write_html_to_s3(self):
-        s3 = boto3.resource('s3')
-        bucket = s3.Bucket("rocketsbucket")
 
     def read_config(self, config):
         """
@@ -130,19 +135,11 @@ class Launch(object):
 
         sys.stderr.write("new signature = %s\n" % str(sig))
 
-        # DynamoDB stuff here
-        dynamodb = boto3.resource('dynamodb',
-                                  region_name='eu-west-2',
-                                  endpoint_url='http://dynamodb.eu-west-2.amazonaws.com')
+        # call DataAccess class depending on the value in config_dict
         table = self.config_dict.get("digest_table")
-        table = dynamodb.Table(table)
-
-        DigestQuery = table.scan()  # will only ever have one row in it
-
-        # add index error exception here for empty table
-        Digest = DigestQuery["Items"][0]["Digest"]
-
+        Digest = self.dataAccess.getDigest(table)
         sys.stderr.write("old signature = %s\n" % str(Digest))
+
 
         if self.config_dict.get("sig_check") == "0":  # for testing - saves time editing the Sig in DynamoDB
             old_sig = "test"
@@ -152,26 +149,12 @@ class Launch(object):
         # now compare
         if sig == old_sig:
             # do nothing
-            self.log_run(sig, "did not update", dynamodb)
+            self.log_run(sig, "did not update")
             return False
         else:
-            # delete existing Digest (tested and works):
-            scan = table.scan()
-            with table.batch_writer() as batch:
-                for each in scan['Items']:
-                    batch.delete_item(
-                        Key={
-                            'Digest': each['Digest']
-                        }
-                    )
-
-            # Insert new digest
-            response = table.put_item(
-                Item={
-                    'Digest': sig, }
-            )
-
-            self.log_run(sig, "updated", dynamodb)
+            # ### call DataAccesCloud and replace the sig ###
+            self.dataAccess.replaceDigest(sig)
+            self.log_run(sig, "updated")
             return True
 
     def process_h2(self, tag):
@@ -219,8 +202,7 @@ class Launch(object):
             """
 
             # first deal with the NET entries!
-            if str.lower(details[
-                         0:3]) == 'net':  # need to remove the the start from "NET March 2, 2023 - SpaceX Falcon 9, USCV-6 (NASA Crew Flight 6)"
+            if str.lower(details[0:3]) == 'net':  # need to remove the the start from "NET March 2, 2023 - SpaceX Falcon 9, USCV-6 (NASA Crew Flight 6)"
                 details = details[4:]  # need to get the space too, so it trims the start and leaves the date in place
 
             # next deal with those dates that are allocate to a quarter
@@ -440,25 +422,15 @@ class Launch(object):
             server.login(sender_email, password)
             server.sendmail(sender_email, receiver_email, message.as_string())
 
-    def log_run(self, sig, action, dynamodb):
+    def log_run(self, sig, action):
 
         date_string = f'{datetime.now():%Y-%m-%d %H:%M:%S%z}'
         output = "Script ran at %s and %s the output, digest was %s" % (date_string, action, sig[-4:])
 
         log_table = self.config_dict.get("log_table")
-
-        table = dynamodb.Table(log_table)
-
-        # hack here - need to update the table fields to match
-        # with signature in the primary field it wasn's logging eac run only when it changed
-        response = table.put_item(
-            Item={
-                'LogTime': date_string,
-                'Output': output,
-                'Signature': sig
-
-            }
-        )
+        sys.stderr.write("%s" % log_table)
+        result = self.dataAccess.logRun(log_table, date_string, output, sig)
+        sys.stderr.write("log response = %s" % result)
         # now email the log to rockets.spotter@gmail.com
         self.notify_log(output)
 
