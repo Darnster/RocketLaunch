@@ -10,8 +10,8 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "2.10a"
-__date__ = "08-03-2023"
+__version__ = "3.0"
+__date__ = "09-03-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -25,25 +25,14 @@ It then runs periodically using crond and uses md5 to determine whether the page
 define in teh config file.
 
 
-Features Complete (beyond version 1.0/1.1)
+Features Complete (beyond version 2.10a)
 -----------------
-1. Modified log to insert into DynamoDB table
-2. Checked over minor differences between 1.0 and 1.1 and update (notifications elements).
-3. AWS cron is in place
-4. Initial encapsulation of code in Launch class
-5. Modified config file to support a test mode
-6. Made table output more concise
-7. Improved formatting on tables an added "broadcast" message capability
-8. Added links to youtube channels
-9. V2.7 - fixed bugs with "NET..." launches not being picked up and mission date regex not matching 2 digit hours! 
-10. Incorporated entries starting with "quarter", e.g. 'Quarter 2, 2023 - SpaceX Falcon 9, Galaxy 37'
-11. Updated the check_page_update to assign old_sig to "test" when sig_check = 0 in config, added stderr logging for old and new sig
-12. Refactored calls to cloud environment into separate class DataAccessCloud.py
+1. Added class for local dataAccess (to files on disk) - DataAccessLocal.py
+2. Fixed bug with some launches not appearing when day og month was blank - now set to last day in month to meet date comparison algorithm rules
 
 TO DO
 -----
-1. Add class for local dataAccess (to files on disk) - will be DataAccessLocal
-2. Maybe update to local UK time?
+1. Maybe update to local UK time?
 
 
 
@@ -65,6 +54,7 @@ class Launch(object):
 
     def __init__(self):
         self.dataAccess = None
+        self.config_dict = {}
 
     def process(self):
         """
@@ -72,22 +62,27 @@ class Launch(object):
         :return:
         """
 
-        self.config_dict = self.read_config("config_test.txt")
+        self.config_dict = self.read_config("config.txt")
+        self.env = self.config_dict.get("environment")
 
-        if self.config_dict.get("environment") == "cloud":
+        if self.env == "cloud":
             import DataAccessCloud
             self.dataAccess = DataAccessCloud.dataAccess()
         else:
-           import DataAccessLocal
-           self.dataAccess = DataAccessLocal.dataAccess()
-
+            import DataAccessLocal
+            self.dataAccess = DataAccessLocal.dataAccess()
 
         # override bot protection on floridareview site
         headers = {'User-Agent': 'SpaceSchedule'}
         content = requests.get("https://floridareview.co.uk:443/things-to-do/current-launch-schedule", headers=headers)
 
         soup = BeautifulSoup(content.text, 'html.parser')
+        ########## debug missed entries with Month and Year only, e.g. March, 2023 - SpaceX Falcon 9, Starlink 5–5
+        #with open("test_content.html") as fp:
+        #    soup = BeautifulSoup(fp,'html.parser')
+        ###########
         tags = soup.find_all(['h2', 'p'])  # Extract and return first occurrence of h2
+        print(tags)
         if self.check_page_update(tags):  # see if digest of tags array is different
             # need to build an array of arrays here, e.g. [[date],mission_details,launch pad, link] link -> #march72023-spacexfalcon9intelsat40e
             missions_array = []
@@ -112,7 +107,6 @@ class Launch(object):
 
             self.notify_update(output_string)
 
-
     def read_config(self, config):
         """
         Read from config file into a dictionary
@@ -136,10 +130,13 @@ class Launch(object):
         sys.stderr.write("new signature = %s\n" % str(sig))
 
         # call DataAccess class depending on the value in config_dict
-        table = self.config_dict.get("digest_table")
-        Digest = self.dataAccess.getDigest(table)
-        sys.stderr.write("old signature = %s\n" % str(Digest))
+        if self.env == "cloud":
+            table = self.config_dict.get("digest_table")
+            Digest = self.dataAccess.getDigest(table)
+        else:
+            Digest = self.dataAccess.getDigest("signature.txt")
 
+        sys.stderr.write("old signature = %s\n" % str(Digest))
 
         if self.config_dict.get("sig_check") == "0":  # for testing - saves time editing the Sig in DynamoDB
             old_sig = "test"
@@ -153,7 +150,7 @@ class Launch(object):
             return False
         else:
             # ### call DataAccesCloud and replace the sig ###
-            self.dataAccess.replaceDigest(sig)
+            self.dataAccess.replaceDigest(sig) # same method signature for both classes :-)
             self.log_run(sig, "updated")
             return True
 
@@ -166,19 +163,19 @@ class Launch(object):
         :param tag:
         :return: array [[<date>], <mission>, <taganchor>, <Launch Pad>]
         """
-        month_dict = {  # used to pad leading zero
-            "January": "01",
-            "February": "02",
-            "March": "03",
-            "April": "04",
-            "May": "05",
-            "June": "06",
-            "July": "07",
-            "August": "08",
-            "September": "09",
-            "October": "10",
-            "November": "11",
-            "December": "12"
+        month_dict = {  # used to pad leading zero and assign last day of month for launches with a day defined
+            "January": ["01", "31"],
+            "February": ["02", "28"],
+            "March": ["03","31"],
+            "April": ["04","30"],
+            "May": ["05","31"],
+            "June": ["06","30"],
+            "July": ["07","31"],
+            "August": ["08","31"],
+            "September": ["09","30"],
+            "October": ["10","31"],
+            "November": ["11","30"],
+            "December": ["12","31"]
         }
 
         details = tag.get_text()
@@ -202,7 +199,8 @@ class Launch(object):
             """
 
             # first deal with the NET entries!
-            if str.lower(details[0:3]) == 'net':  # need to remove the the start from "NET March 2, 2023 - SpaceX Falcon 9, USCV-6 (NASA Crew Flight 6)"
+            if str.lower(details[
+                         0:3]) == 'net':  # need to remove the the start from "NET March 2, 2023 - SpaceX Falcon 9, USCV-6 (NASA Crew Flight 6)"
                 details = details[4:]  # need to get the space too, so it trims the start and leaves the date in place
 
             # next deal with those dates that are allocate to a quarter
@@ -226,13 +224,14 @@ class Launch(object):
                 # returns '2023'
                 day = date_array[1]
                 # returns ['January',' 3']
-                month = month_dict.get(date_array[0])
+                month = month_dict.get(date_array[0])[0]
             else:  # 'January 2023'
                 # ['January','2023']
                 year = date_array[1]
                 # returns '2023'
-                month = month_dict.get(date_array[0])
-                day = "null"
+                month = month_dict.get(date_array[0])[0]
+                # need to assign a default day value to last day of month!
+                day = month_dict.get(date_array[0])[1]
 
             # get tag id so we can use the anchor in the details link
             anchor = tag.get('id')
@@ -429,8 +428,11 @@ class Launch(object):
 
         log_table = self.config_dict.get("log_table")
         sys.stderr.write("%s" % log_table)
-        result = self.dataAccess.logRun(log_table, date_string, output, sig)
-        sys.stderr.write("log response = %s" % result)
+        if self.env == "cloud":
+            result = self.dataAccess.logRun(log_table, date_string, output, sig)
+            sys.stderr.write("log response = %s" % result)
+        else:
+            self.dataAccess.logRun(output)
         # now email the log to rockets.spotter@gmail.com
         self.notify_log(output)
 

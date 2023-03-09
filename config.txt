@@ -3,6 +3,6 @@ email_notification_subject: Rocket Schedule Update ***TEST***
 email_log_subject: Rockets Run Log ***TEST***
 digest_table : TestRocketsDigest
 log_table : TestRocketsLog
-sig_check : 1
-environment : cloud
+sig_check : 0
+environment : local
 broadcast: All Times local to Florida. Add 5 hours for UK time. <i><p>Entries suffixed ***allocated to Quarter x*** are allocated to the last day of the quarter whilst <br/>awaiting scheduling (these weren't included previously).</
