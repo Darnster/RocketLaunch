@@ -10,8 +10,8 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "3.0"
-__date__ = "09-03-2023"
+__version__ = "3.1"
+__date__ = "10-03-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -29,6 +29,7 @@ Features Complete (beyond version 2.10a)
 -----------------
 1. Added class for local dataAccess (to files on disk) - DataAccessLocal.py
 2. Fixed bug with some launches not appearing when day og month was blank - now set to last day in month to meet date comparison algorithm rules
+3. missions_array now sorted in date order
 
 TO DO
 -----
@@ -77,10 +78,7 @@ class Launch(object):
         content = requests.get("https://floridareview.co.uk:443/things-to-do/current-launch-schedule", headers=headers)
 
         soup = BeautifulSoup(content.text, 'html.parser')
-        ########## debug missed entries with Month and Year only, e.g. March, 2023 - SpaceX Falcon 9, Starlink 5–5
-        #with open("test_content.html") as fp:
-        #    soup = BeautifulSoup(fp,'html.parser')
-        ###########
+
         tags = soup.find_all(['h2', 'p'])  # Extract and return first occurrence of h2
         print(tags)
         if self.check_page_update(tags):  # see if digest of tags array is different
@@ -102,6 +100,8 @@ class Launch(object):
                         this_mission.append(tag.get_text())
                         missions_array.append(this_mission)
                         ctrl_flag = False
+
+            missions_array = sorted(missions_array, key=lambda x: x[0])
 
             output_string = self.generate_output(missions_array)
 
