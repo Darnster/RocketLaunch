@@ -80,7 +80,7 @@ class Launch(object):
         soup = BeautifulSoup(content.text, 'html.parser')
 
         tags = soup.find_all(['h2', 'p'])  # Extract and return first occurrence of h2
-        print(tags)
+        #(tags)
         if self.check_page_update(tags):  # see if digest of tags array is different
             # need to build an array of arrays here, e.g. [[date],mission_details,launch pad, link] link -> #march72023-spacexfalcon9intelsat40e
             missions_array = []
