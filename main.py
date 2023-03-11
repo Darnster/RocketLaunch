@@ -10,8 +10,8 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "3.1"
-__date__ = "10-03-2023"
+__version__ = "3.2"
+__date__ = "11-03-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -22,14 +22,15 @@ It queries the Florida launch timetable page (https://floridareview.co.uk/things
 the results in an easy to read summary as a table in an HTML page.
 
 It then runs periodically using crond and uses md5 to determine whether the page has been updated and emails the output to a list of recipients
-define in teh config file.
+define in the config file.
 
 
 Features Complete (beyond version 2.10a)
 -----------------
 1. Added class for local dataAccess (to files on disk) - DataAccessLocal.py
 2. Fixed bug with some launches not appearing when day og month was blank - now set to last day in month to meet date comparison algorithm rules
-3. missions_array now sorted in date order
+3. missions_array now sorted in date order - bug fixed with last actual last day (or default date applied to end of month or quarter) not sorting correctly 
+4. check_page_update() now reads the missions_array rather than the tags coming back from the page to detect changes.
 
 TO DO
 -----
@@ -81,31 +82,51 @@ class Launch(object):
 
         tags = soup.find_all(['h2', 'p'])  # Extract and return first occurrence of h2
         #(tags)
-        if self.check_page_update(tags):  # see if digest of tags array is different
-            # need to build an array of arrays here, e.g. [[date],mission_details,launch pad, link] link -> #march72023-spacexfalcon9intelsat40e
-            missions_array = []
-            ctrl_flag = False  # controls when the process stops appending to the mission array (this_mission)
-            this_mission = []
-            for tag in tags:
-                if not ctrl_flag:
-                    this_mission = []
-                if str(tag)[0:6] == "<h2 id":  # this is a heading we are interested in
-                    mission = self.process_h2(tag)
-                    if mission:
-                        this_mission = mission
-                        ctrl_flag = True
 
-                if ctrl_flag:
-                    if tag.get_text()[0:6] == "Launch":
-                        this_mission.append(tag.get_text())
-                        missions_array.append(this_mission)
-                        ctrl_flag = False
+        # need to build an array of arrays here, e.g. [[date],mission_details,launch pad, link] link -> #march72023-spacexfalcon9intelsat40e
+        missions_array = []
+        ctrl_flag = False  # controls when the process stops appending to the mission array (this_mission)
+        this_mission = []
+        for tag in tags:
+            if not ctrl_flag:
+                this_mission = []
+            if str(tag)[0:6] == "<h2 id":  # this is a heading we are interested in
+                mission = self.process_h2(tag)
+                if mission:
+                    this_mission = mission
+                    ctrl_flag = True
 
-            missions_array = sorted(missions_array, key=lambda x: x[0])
+            if ctrl_flag:
+                if tag.get_text()[0:6] == "Launch":
+                    this_mission.append(tag.get_text())
+                    missions_array.append(this_mission)
+                    ctrl_flag = False
 
-            output_string = self.generate_output(missions_array)
+        if self.check_page_update(missions_array):  # see if digest of tags array is different
+            missions_array_sorted = sorted(missions_array, key=lambda x: self.sortDate(x))
+            output_string = self.generate_output(missions_array_sorted)
 
-            self.notify_update(output_string)
+        self.notify_update(output_string)
+
+    def sortDate(self, mission):
+        """
+        :param mission: list of strings [year, month, date]
+        :return: unix epoch as timestamp
+        """
+        date_list = mission[0]
+        date_epoch = datetime(int(date_list[0]), int(date_list[1]), int(date_list[2]),0,0)
+        my_date = calendar.timegm(date_epoch.timetuple())
+
+        """ now adjust timestamp based on the second value in the mission array! aaargh!!
+        
+        [['2023', '06', '30'], 'June 30 2023',...]
+        [['2023', '06', '30'], 'June 2023',...]
+        if string.split mission[1] == 2, reduce epoch time by 2 days :-)
+        
+        """
+        if len(str.split(mission[1], " ")) == 2:
+            my_date = my_date - 172800
+        return my_date
 
     def read_config(self, config):
         """
@@ -313,7 +334,7 @@ class Launch(object):
         for mission in missions_array:
             style_count += 1
             # print(mission)
-            # first assign any null days (no date defined in schedyule) to 1st of month for comparison only
+            # first assign any null days (no date defined in schedule) to 1st of month for comparison only
             if mission[0][2] == "null":
                 mission_day = 1
             else:
