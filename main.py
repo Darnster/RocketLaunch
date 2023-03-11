@@ -10,7 +10,7 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "3.2"
+__version__ = "3.3"
 __date__ = "11-03-2023"
 
 """
@@ -31,6 +31,7 @@ Features Complete (beyond version 2.10a)
 2. Fixed bug with some launches not appearing when day og month was blank - now set to last day in month to meet date comparison algorithm rules
 3. missions_array now sorted in date order - bug fixed with last actual last day (or default date applied to end of month or quarter) not sorting correctly 
 4. check_page_update() now reads the missions_array rather than the tags coming back from the page to detect changes.
+5. self.notify_update() now within the if (check_page_update()) structure
 
 TO DO
 -----
@@ -106,7 +107,7 @@ class Launch(object):
             missions_array_sorted = sorted(missions_array, key=lambda x: self.sortDate(x))
             output_string = self.generate_output(missions_array_sorted)
 
-        self.notify_update(output_string)
+            self.notify_update(output_string)
 
     def sortDate(self, mission):
         """
