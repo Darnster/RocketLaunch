@@ -10,8 +10,8 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "3.3"
-__date__ = "11-03-2023"
+__version__ = "3.4"
+__date__ = "12-03-2023"
 
 """
 Credit to:  https://www.pluralsight.com/guides/web-scraping-with-beautiful-soup
@@ -32,10 +32,13 @@ Features Complete (beyond version 2.10a)
 3. missions_array now sorted in date order - bug fixed with last actual last day (or default date applied to end of month or quarter) not sorting correctly 
 4. check_page_update() now reads the missions_array rather than the tags coming back from the page to detect changes.
 5. self.notify_update() now within the if (check_page_update()) structure
+6. check_page_update() now reads the missions_array into current_missions (based on today's date) prior to the call to check_has_updated()
 
 TO DO
 -----
-1. Maybe update to local UK time?
+1. update the page with the most recent mission that was scheduled/launched and include all details.
+2. Maybe update to local UK time?  Needs a lot of effort to pull this out
+3. Add EC2 container to host a static web page for testing...
 
 
 
@@ -103,8 +106,18 @@ class Launch(object):
                     missions_array.append(this_mission)
                     ctrl_flag = False
 
-        if self.check_page_update(missions_array):  # see if digest of tags array is different
-            missions_array_sorted = sorted(missions_array, key=lambda x: self.sortDate(x))
+        # only interested in missions from midnight of the start of today onwards...
+        current_day = (int(time.time() // 86400)) * 86400  # output = 6614352000
+        current_missions = []
+        for mission in missions_array:
+            mission_date = datetime(int(mission[0][0]), int(mission[0][1]), int(mission[0][2]), 0, 0)
+            mission_date = calendar.timegm(mission_date.timetuple())
+            if mission_date >= current_day:
+                current_missions.append(mission)
+
+        if self.check_has_updated(current_missions):  # see if digest of tags array is different
+            # sort the missions by date
+            missions_array_sorted = sorted(current_missions, key=lambda x: self.sortDate(x))
             output_string = self.generate_output(missions_array_sorted)
 
             self.notify_update(output_string)
@@ -138,7 +151,7 @@ class Launch(object):
         cp = cfg_parser.config_parser()
         return cp.read(config)
 
-    def check_page_update(self, tags):
+    def check_has_updated(self, tags):
         """
         Generate a signature for incoming data and compare with the last version
         :param tags: multidemensional array of data returned from the web page
@@ -330,23 +343,17 @@ class Launch(object):
         [[['2022', '12', '31'], 'SpaceX Falcon 9, Transporter 6', 'january32023-spacexfalcon9transporter6', 'Launch was from launch pad SLC-40 with a launch time of 9:56 a.m. EST.'],...
         """
         table_detail_string = ""
-        current_day = (int(time.time() // 86400)) * 86400  # output = 6614352000
         style_count = 0  # used for alternate style on table rows
         for mission in missions_array:
             style_count += 1
-            # print(mission)
             # first assign any null days (no date defined in schedule) to 1st of month for comparison only
-            if mission[0][2] == "null":
-                mission_day = 1
-            else:
-                mission_day = mission[0][2]
+            mission_day = mission[0][2]
             # print(mission_day)
             mission_date = datetime(int(mission[0][0]), int(mission[0][1]), int(mission_day), 0, 0)
             mission_date = calendar.timegm(mission_date.timetuple())
-            if mission_date >= current_day:
-                # print("mission_date = %s, current_time = %s" % (mission_date, current_time))
-                mission_row_string = self.create_mission_row(mission, style_count)
-                table_detail_string += mission_row_string
+            # print("mission_date = %s, current_time = %s" % (mission_date, current_time))
+            mission_row_string = self.create_mission_row(mission, style_count)
+            table_detail_string += mission_row_string
         return html_head + table_head + table_detail_string + table_footer + html_footer
 
     def create_mission_row(self, mission, style_count):
