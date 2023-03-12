@@ -10,7 +10,7 @@ import cfg_parser
 import re
 
 __author__ = "danny.ruttle@gmail.com"
-__version__ = "3.4"
+__version__ = "3.4.1"
 __date__ = "12-03-2023"
 
 """
@@ -109,12 +109,18 @@ class Launch(object):
         # only interested in missions from midnight of the start of today onwards...
         current_day = (int(time.time() // 86400)) * 86400  # output = 6614352000
         current_missions = []
+        mission_count = 0
+        current_mission_count = 0
         for mission in missions_array:
+            mission_count += 1
             mission_date = datetime(int(mission[0][0]), int(mission[0][1]), int(mission[0][2]), 0, 0)
             mission_date = calendar.timegm(mission_date.timetuple())
             if mission_date >= current_day:
                 current_missions.append(mission)
-
+                current_mission_count += 1
+        sys.stderr.write("mission count = %s\n" % mission_count)
+        sys.stderr.write("current mission count = %s\n" % current_mission_count)
+        sys.stderr.write("last mission scheduled/launched = %s\n" % (int(mission_count) - int(current_mission_count)))
         if self.check_has_updated(current_missions):  # see if digest of tags array is different
             # sort the missions by date
             missions_array_sorted = sorted(current_missions, key=lambda x: self.sortDate(x))
